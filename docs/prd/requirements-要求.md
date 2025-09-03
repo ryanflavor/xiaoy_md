@@ -4,8 +4,8 @@
 
 **功能需求（法语）**
 
-* **FR1 (Revised)**: The service must be able to host **at least one** vnpy gateway instance (**starting with CTP for the MVP**), and manage its lifecycle.  
-  **FR1（修订版）** ：该服务必须能够托管**至少一个** vnpy 网关实例（ **从 MVP 的 CTP 开始** ），并管理其生命周期。  
+* **FR1 (Revised)**: The service must be able to host **at least one** vnpy gateway instance (**starting with CTP for the MVP**) in a separate thread using ThreadPoolExecutor, and manage its lifecycle including thread restarts for reconnection.  
+  **FR1（修订版）** ：该服务必须能够使用ThreadPoolExecutor在独立线程中托管**至少一个** vnpy 网关实例（ **从 MVP 的 CTP 开始** ），并管理其生命周期，包括重连所需的线程重启。  
 * **FR2**: The service must implement an event bridge to safely pass market data events from the synchronous vnpy EventEngine to an asynchronous NATS publisher.  
   **FR2** ：服务必须实现事件桥，以便将市场数据事件从同步 vnpy EventEngine 安全地传递到异步 NATS 发布者。  
 * **FR3**: The service must publish vnpy.trader.object.TickData formatted market data to a configurable NATS topic.  
@@ -25,8 +25,8 @@
   **NFR1** ：服务的设计必须遵循领域驱动设计（DDD）和六边形架构（端口和适配器）原则。  
 * **NFR2**: All internal data model definitions and validations within the service must use the Pydantic library.  
   **NFR2** ：服务内的所有内部数据模型定义和验证都必须使用 Pydantic 库。  
-* **NFR3**: The service prototype must be able to handle a peak message rate of at least **5,000 messages/second**.  
-  **NFR3** ：服务原型必须能够处理至少**每秒 5,000 条消息**的峰值消息速率。  
+* **NFR3**: The service prototype should be designed to handle a peak message rate of at least **5,000 messages/second** (verification deferred to post-MVP testing).  
+  **NFR3** ：服务原型应设计为能够处理至少**每秒 5,000 条消息**的峰值消息速率（验证推迟到MVP后测试）。  
 * **NFR4**: As an internal prototype, the MVP does not require complex security mechanisms (e.g., client authentication, authorization).  
   **NFR4** ：作为内部原型，MVP 不需要复杂的安全机制（例如，客户端身份验证、授权）。  
 * **NFR5**: The end-to-end latency for the service itself (from CTP data receipt to NATS publication) should be minimized.  

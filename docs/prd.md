@@ -31,8 +31,8 @@ This project aims to solve the integration challenge between the company's synch
 
 **功能需求（法语）**
 
-* **FR1 (Revised)**: The service must be able to host **at least one** vnpy gateway instance (**starting with CTP for the MVP**), and manage its lifecycle.  
-  **FR1（修订版）** ：该服务必须能够托管**至少一个** vnpy 网关实例（ **从 MVP 的 CTP 开始** ），并管理其生命周期。  
+* **FR1 (Revised)**: The service must be able to host **at least one** vnpy gateway instance (**starting with CTP for the MVP**) in a separate thread using ThreadPoolExecutor, and manage its lifecycle including thread restarts for reconnection.  
+  **FR1（修订版）** ：该服务必须能够使用ThreadPoolExecutor在独立线程中托管**至少一个** vnpy 网关实例（ **从 MVP 的 CTP 开始** ），并管理其生命周期，包括重连所需的线程重启。  
 * **FR2**: The service must implement an event bridge to safely pass market data events from the synchronous vnpy EventEngine to an asynchronous NATS publisher.  
   **FR2** ：服务必须实现事件桥，以便将市场数据事件从同步 vnpy EventEngine 安全地传递到异步 NATS 发布者。  
 * **FR3**: The service must publish vnpy.trader.object.TickData formatted market data to a configurable NATS topic.  
@@ -52,8 +52,8 @@ This project aims to solve the integration challenge between the company's synch
   **NFR1** ：服务的设计必须遵循领域驱动设计（DDD）和六边形架构（端口和适配器）原则。  
 * **NFR2**: All internal data model definitions and validations within the service must use the Pydantic library.  
   **NFR2** ：服务内的所有内部数据模型定义和验证都必须使用 Pydantic 库。  
-* **NFR3**: The service prototype must be able to handle a peak message rate of at least **5,000 messages/second**.  
-  **NFR3** ：服务原型必须能够处理至少**每秒 5,000 条消息**的峰值消息速率。  
+* **NFR3**: The service prototype should be designed to handle a peak message rate of at least **5,000 messages/second** (verification deferred to post-MVP testing).  
+  **NFR3** ：服务原型应设计为能够处理至少**每秒 5,000 条消息**的峰值消息速率（验证推迟到MVP后测试）。  
 * **NFR4**: As an internal prototype, the MVP does not require complex security mechanisms (e.g., client authentication, authorization).  
   **NFR4** ：作为内部原型，MVP 不需要复杂的安全机制（例如，客户端身份验证、授权）。  
 * **NFR5**: The end-to-end latency for the service itself (from CTP data receipt to NATS publication) should be minimized.  
@@ -179,16 +179,16 @@ ACs ：应用程序逻辑扩展以连接到 NATS；服务监听并响应健康�
 **故事 2.1：CTP 网关适配器实现**
 
 As a Developer, I want to implement the CTP Gateway Adapter based on the defined port, so that the service can connect to and manage the vnpy CTP gateway's lifecycle.  
-ACs: CTPGatewayAdapter class created implementing MarketDataGatewayPort; adapter connects/logs in to CTP gateway in a separate thread; connection errors are handled; unit tests verify state transitions using mocks.作为开发人员， 我想根据定义的端口实现 CTP 网关适配器， 以便服务可以连接并管理 vnpy CTP 网关的生命周期。  
-ACs ：创建实现 MarketDataGatewayPort CTPGatewayAdapter 类；适配器在单独的线程中连接/登录到 CTP 网关；处理连接错误；单元测试使用模拟验证状态转换。
+ACs: CTPGatewayAdapter class created implementing MarketDataGatewayPort; adapter connects/logs in to CTP gateway in a separate thread (ThreadPoolExecutor); connection errors are handled with thread restart capability; unit tests verify state transitions using mocks.作为开发人员， 我想根据定义的端口实现 CTP 网关适配器， 以便服务可以连接并管理 vnpy CTP 网关的生命周期。  
+ACs ：创建实现 MarketDataGatewayPort CTPGatewayAdapter 类；适配器在单独的线程（ThreadPoolExecutor）中连接/登录到 CTP 网关；处理连接错误并具备线程重启能力；单元测试使用模拟验证状态转换。
 
 #### **Story 2.2: Sync-to-Async Event Bridge**
 
 **故事 2.2：同步到异步事件桥**
 
-As a Developer, I want to bridge vnpy's synchronous EventEngine events to the main asyncio loop, so that market data can be processed asynchronously.  
-ACs: Adapter subscribes to vnpy events; a thread-safe mechanism (asyncio.run\_coroutine\_threadsafe) passes TickData to an internal asyncio.Queue; unit tests verify the bridging mechanism.作为开发人员， 我想将 vnpy 的同步 EventEngine 事件桥接到主 asyncio 循环， 以便可以异步处理市场数据。  
-ACs ：适配器订阅 vnpy 事件；线程安全机制 ( asyncio.run\_coroutine\_threadsafe ) 将 TickData 传递给内部 asyncio.Queue ；单元测试验证了桥接机制。
+As a Developer, I want to bridge vnpy's synchronous EventEngine events from the executor thread to the main asyncio loop, so that market data can be processed asynchronously.  
+ACs: Adapter subscribes to vnpy events in executor thread; uses asyncio.run_coroutine_threadsafe() to pass TickData to main loop's asyncio.Queue; unit tests verify the bridging mechanism.作为开发人员， 我想将执行器线程中vnpy的同步 EventEngine 事件桥接到主 asyncio 循环， 以便可以异步处理市场数据。  
+ACs ：适配器在执行器线程中订阅 vnpy 事件；使用 asyncio.run_coroutine_threadsafe() 将 TickData 传递给主循环的 asyncio.Queue ；单元测试验证了桥接机制。
 
 #### **Story 2.3: NATS Publisher Adapter Implementation**
 

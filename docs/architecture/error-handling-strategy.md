@@ -2,7 +2,7 @@
 
 ## **CTP Gateway Connection Errors**
 
-* **Strategy**: **Process Supervisor & Restart**. The CTP adapter will run the vnpy gateway in an isolated child process. Upon detecting a failure, the adapter will terminate the old process and start a new one.
+* **Strategy**: **Thread Supervisor & Restart**. The CTP adapter runs the vnpy gateway in an isolated thread. Upon detecting a disconnection or failure, the adapter will shutdown the executor and create a new ThreadPoolExecutor with fresh threads (required for CTP reconnection).
 
 ## **NATS Publish Failures**
 

@@ -61,16 +61,16 @@ ACs ：应用程序逻辑扩展以连接到 NATS；服务监听并响应健康�
 **故事 2.1：CTP 网关适配器实现**
 
 As a Developer, I want to implement the CTP Gateway Adapter based on the defined port, so that the service can connect to and manage the vnpy CTP gateway's lifecycle.  
-ACs: CTPGatewayAdapter class created implementing MarketDataGatewayPort; adapter connects/logs in to CTP gateway in a separate thread; connection errors are handled; unit tests verify state transitions using mocks.作为开发人员， 我想根据定义的端口实现 CTP 网关适配器， 以便服务可以连接并管理 vnpy CTP 网关的生命周期。  
-ACs ：创建实现 MarketDataGatewayPort CTPGatewayAdapter 类；适配器在单独的线程中连接/登录到 CTP 网关；处理连接错误；单元测试使用模拟验证状态转换。
+ACs: CTPGatewayAdapter class created implementing MarketDataGatewayPort; adapter connects/logs in to CTP gateway in a separate thread (ThreadPoolExecutor); connection errors are handled with thread restart capability; unit tests verify state transitions using mocks.作为开发人员， 我想根据定义的端口实现 CTP 网关适配器， 以便服务可以连接并管理 vnpy CTP 网关的生命周期。  
+ACs ：创建实现 MarketDataGatewayPort CTPGatewayAdapter 类；适配器在单独的线程（ThreadPoolExecutor）中连接/登录到 CTP 网关；处理连接错误并具备线程重启能力；单元测试使用模拟验证状态转换。
 
 ### **Story 2.2: Sync-to-Async Event Bridge**
 
 **故事 2.2：同步到异步事件桥**
 
-As a Developer, I want to bridge vnpy's synchronous EventEngine events to the main asyncio loop, so that market data can be processed asynchronously.  
-ACs: Adapter subscribes to vnpy events; a thread-safe mechanism (asyncio.run\_coroutine\_threadsafe) passes TickData to an internal asyncio.Queue; unit tests verify the bridging mechanism.作为开发人员， 我想将 vnpy 的同步 EventEngine 事件桥接到主 asyncio 循环， 以便可以异步处理市场数据。  
-ACs ：适配器订阅 vnpy 事件；线程安全机制 ( asyncio.run\_coroutine\_threadsafe ) 将 TickData 传递给内部 asyncio.Queue ；单元测试验证了桥接机制。
+As a Developer, I want to bridge vnpy's synchronous EventEngine events from the executor thread to the main asyncio loop, so that market data can be processed asynchronously.  
+ACs: Adapter subscribes to vnpy events in executor thread; uses asyncio.run_coroutine_threadsafe() to pass TickData to main loop's asyncio.Queue; unit tests verify the bridging mechanism.作为开发人员， 我想将执行器线程中vnpy的同步 EventEngine 事件桥接到主 asyncio 循环， 以便可以异步处理市场数据。  
+ACs ：适配器在执行器线程中订阅 vnpy 事件；使用 asyncio.run_coroutine_threadsafe() 将 TickData 传递给主循环的 asyncio.Queue ；单元测试验证了桥接机制。
 
 ### **Story 2.3: NATS Publisher Adapter Implementation**
 

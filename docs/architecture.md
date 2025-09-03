@@ -18,14 +18,14 @@ This project is not based on a standard third-party starter template. However, t
 
 ### **Technical Summary**
 
-This project's core is a Python asynchronous service built on the **Hexagonal Architecture (Ports and Adapters)** principle. A dedicated "input adapter" will manage the synchronous vnpy CTP gateway in an isolated child process, while an "output adapter" publishes the processed data to a NATS JetStream cluster. The entire design aims to create a highly decoupled, testable, and scalable middleware solution, fulfilling the PRD's objectives for a rapid yet robust prototype.
+This project's core is a Python asynchronous service built on the **Hexagonal Architecture (Ports and Adapters)** principle. A dedicated "input adapter" will manage the synchronous vnpy CTP gateway in an isolated thread using ThreadPoolExecutor, while an "output adapter" publishes the processed data to a NATS JetStream cluster. The entire design aims to create a highly decoupled, testable, and scalable middleware solution, fulfilling the PRD's objectives for a rapid yet robust prototype.
 
 ### **Architecture Overview**
 
 We will construct a single, independent market data service that acts as a bridge between the vnpy data source and internal asynchronous applications. The primary data flow is as follows:
 
-1. **Data Input**: The vnpy CTP gateway runs in a separate, supervised child process, receiving raw market data and emitting synchronous events.  
-2. **Event Bridging**: The CTP adapter in the main process monitors the child process and safely passes events to the main asynchronous event loop.  
+1. **Data Input**: The vnpy CTP gateway runs in a separate, supervised thread (using ThreadPoolExecutor), receiving raw market data and emitting synchronous events.  
+2. **Event Bridging**: The CTP adapter uses asyncio.run_coroutine_threadsafe() to safely transfer events from the executor thread to the main asynchronous event loop.  
 3. **Data Publication**: The core application logic processes these events and hands them to the NATS adapter for publication on the NATS cluster.  
 4. **Data Consumption**: Internal applications (strategies, dashboards, etc.) can then subscribe to this market data asynchronously from the NATS cluster.
 
@@ -66,7 +66,7 @@ graph TD
 
 * **Hexagonal Architecture (Ports and Adapters)**: This is our primary architectural pattern. The core business logic is isolated and interacts with the outside world through well-defined "ports" (interfaces). The CTP integration is an input adapter, and the NATS publication is an output adapter.  
 * **Domain-Driven Design (DDD)**: We will model our logic around the core "market data processing" domain, using Pydantic to define clear domain objects and a ubiquitous language.  
-* **Process Supervisor Pattern**: To handle the instability of the CTP connection, the CTP adapter will run the vnpy gateway in a separate child process and act as a supervisor, restarting the process upon failure.  
+* **Thread Supervisor Pattern**: The CTP adapter runs the vnpy gateway in a separate thread pool and acts as a supervisor, restarting the thread upon disconnection (required by CTP's reconnection mechanism).  
 * **Publisher-Subscriber Pattern**: This is the fundamental pattern for communication with downstream consumers via NATS, ensuring a high degree of decoupling.  
 * **Configurable Serialization Strategy (Strategy Pattern)**: The service will use a configurable strategy for data serialization (Pickle for flexibility, Pydantic+JSON for standardization), allowing the system to adapt to different consumer needs.
 
@@ -95,8 +95,8 @@ This table represents the definitive technology choices for the project. All dev
 | **IaC Tool** | **Docker Compose** | 2.24.x | **Standardized app stack deployment** | Provides service discovery and simplified management. |
 | **Logging** | Logging (Python Module) | 3.13 | Application logging | Python's built-in standard library. |
 | **Serialization** | Pickle / Pydantic+JSON | Configurable | Data transfer format | User-specified; balances flexibility and standards. |
-| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage** | Industry-standard open-source monitoring. |
-| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards** | Powerful visualization for Prometheus data. |
+| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage (Post-MVP)** | Industry-standard open-source monitoring. |
+| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards (Post-MVP)** | Powerful visualization for Prometheus data. |
 
 ---
 
@@ -155,8 +155,8 @@ The architecture is divided into the following components, adhering to the Ports
 ### **Core Components**
 
 1. **CTP Gateway Adapter**  
-   * **Responsibility**: Implements the MarketDataPort. It encapsulates the vnpy CTP gateway, running it in a supervised child process. Its core tasks are managing the gateway's lifecycle and **translating** the external vnpy.TickData object into our internal DomainTick object.  
-   * **Dependencies**: vnpy==4.1.0, Python multiprocessing.  
+   * **Responsibility**: Implements the MarketDataPort. It encapsulates the vnpy CTP gateway, running it in a supervised thread (ThreadPoolExecutor). Its core tasks are managing the gateway's lifecycle, handling thread restarts on disconnection, and **translating** the external vnpy.TickData object into our internal DomainTick object.  
+   * **Dependencies**: vnpy==4.1.0, Python concurrent.futures (ThreadPoolExecutor).  
 2. **Core Application Service**  
    * **Responsibility**: The application's core. It orchestrates the adapters via the ports, receives the DomainTick stream, and performs core domain logic (e.g., validating the tick data against business invariants like price \> 0). It has no knowledge of vnpy or NATS.  
    * **Dependencies**: Pydantic.  
@@ -303,7 +303,7 @@ market-data-service/
 
 ### **CTP Gateway Connection Errors**
 
-* **Strategy**: **Process Supervisor & Restart**. The CTP adapter will run the vnpy gateway in an isolated child process. Upon detecting a failure, the adapter will terminate the old process and start a new one.
+* **Strategy**: **Thread Supervisor & Restart**. The CTP adapter runs the vnpy gateway in an isolated thread. Upon detecting a disconnection or failure, the adapter will shutdown the executor and create a new ThreadPoolExecutor with fresh threads (required for CTP reconnection).
 
 ### **NATS Publish Failures**
 

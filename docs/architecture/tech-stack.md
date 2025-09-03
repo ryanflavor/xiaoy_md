@@ -21,7 +21,7 @@ This table represents the definitive technology choices for the project. All dev
 | **IaC Tool** | **Docker Compose** | 2.24.x | **Standardized app stack deployment** | Provides service discovery and simplified management. |
 | **Logging** | Logging (Python Module) | 3.13 | Application logging | Python's built-in standard library. |
 | **Serialization** | Pickle / Pydantic+JSON | Configurable | Data transfer format | User-specified; balances flexibility and standards. |
-| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage** | Industry-standard open-source monitoring. |
-| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards** | Powerful visualization for Prometheus data. |
+| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage (Post-MVP)** | Industry-standard open-source monitoring. |
+| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards (Post-MVP)** | Powerful visualization for Prometheus data. |
 
 ---
