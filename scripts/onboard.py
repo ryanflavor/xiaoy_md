@@ -139,11 +139,11 @@ class LinuxOnboardingWizard:
     def install_uv(self) -> tuple[bool, str]:
         """Install uv package manager."""
         try:
-            # Use shell=True for curl pipe  # nosec B602
-            result = subprocess.run(
+            # Use shell=True for curl pipe installation
+            result = subprocess.run(  # noqa: S602
                 "curl -LsSf https://astral.sh/uv/install.sh | sh",
                 check=False,
-                shell=True,
+                shell=True,  # needed for uv installation
                 capture_output=True,
                 text=True,
             )
