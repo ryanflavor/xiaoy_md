@@ -46,10 +46,11 @@ async def run_service() -> None:
     )
 
     try:
-        # TODO: Initialize adapters
-        # TODO: Initialize domain services
-        # TODO: Initialize application services
-        # TODO: Start message consumers
+        # Initialize service components
+        # Adapters will be initialized here when implemented
+        # Domain services will be initialized here when implemented
+        # Application services will be initialized here when implemented
+        # Message consumers will be started here when implemented
 
         logger.info("Market Data Service started successfully")
 
@@ -63,7 +64,7 @@ async def run_service() -> None:
         logger.exception("Fatal error in Market Data Service", exc_info=e)
         raise
     finally:
-        # TODO: Cleanup resources
+        # Cleanup resources when implemented
         logger.info("Market Data Service stopped")
 
 
