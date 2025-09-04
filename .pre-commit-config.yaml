@@ -106,7 +106,12 @@ repos:
         types: [python]
         exclude: '^(docs/|\.github/)'
 
-      # Removed validate-pyproject - toml module not available
+      - id: validate-pyproject
+        name: Validate pyproject.toml
+        entry: uv run python -c "import tomli; tomli.load(open('pyproject.toml', 'rb'))"
+        language: system
+        files: 'pyproject.toml'
+        pass_filenames: false
 
 # Configuration
 default_stages: [pre-commit]
