@@ -31,7 +31,7 @@ class HexagonalValidator(ast.NodeVisitor):
         },
         "adapters": {
             "forbidden_imports": [],  # Adapters can import from anywhere
-            "allowed_imports": None,  # No restrictions
+            "allowed_imports": [],  # No restrictions (empty list means allow all)
         },
     }
 

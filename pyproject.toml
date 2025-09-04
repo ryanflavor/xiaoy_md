@@ -256,6 +256,8 @@ ignore = [
     "FBT002", # boolean default arg
     "COM812", # trailing comma (handled by Black)
     "ISC001", # string concatenation (conflicts with Black)
+    "TRY300", # try-else structure (conflicts with Black formatting)
+    "S602",   # subprocess with shell (needed for installation scripts)
 
     # Project-specific ignores
     "T201",   # print statements (allowed in scripts)

@@ -79,11 +79,7 @@ class LinuxOnboardingWizard:
 
                 if arch in ["x86_64", "aarch64"]:
                     return True, f"{distro} {arch} - Perfect for MVP!"
-
-                else:
-
-
-                    return False, f"Unsupported architecture: {arch}"
+                return False, f"Unsupported architecture: {arch}"
             except (OSError, FileNotFoundError):
                 return True, f"{system} system detected"
         elif system == "Darwin":
@@ -123,11 +119,7 @@ class LinuxOnboardingWizard:
             )
             if result.returncode == 0:
                 return True, f"{result.stdout.strip()} ✨"
-
-            else:
-
-
-                return False, f"Python 3.13 required, found {version}"
+            return False, f"Python 3.13 required, found {version}"
         except (subprocess.SubprocessError, OSError, FileNotFoundError):
             return False, "Python not found"
 
@@ -147,11 +139,11 @@ class LinuxOnboardingWizard:
     def install_uv(self) -> tuple[bool, str]:
         """Install uv package manager."""
         try:
-            # Use shell=True for curl pipe
+            # Use shell=True for curl pipe  # nosec B602
             result = subprocess.run(
                 "curl -LsSf https://astral.sh/uv/install.sh | sh",
                 check=False,
-                shell=True,  # nosec B602  # nosec B602  # nosec B602
+                shell=True,
                 capture_output=True,
                 text=True,
             )
@@ -161,11 +153,7 @@ class LinuxOnboardingWizard:
                 cargo_bin = Path.home() / ".cargo" / "bin"
                 os.environ["PATH"] = f"{cargo_bin}:{os.environ['PATH']}"
                 return True, "uv installed successfully"
-
-            else:
-
-
-                return False, f"Failed to install uv: {result.stderr}"
+            return False, f"Failed to install uv: {result.stderr}"
         except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Failed to install uv: {e}"
 
@@ -184,11 +172,7 @@ class LinuxOnboardingWizard:
 
             if result.returncode != 0:
                 return False, f"Dependency installation failed: {result.stderr}"
-
-            else:
-
-
-                return True, "Project setup complete"
+            return True, "Project setup complete"
         except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Setup failed: {e}"
 
@@ -225,9 +209,7 @@ class LinuxOnboardingWizard:
             # It's okay if there are no violations on initial setup
             if "✅ Architecture validation PASSED" in result.stdout:
                 return True, "Architecture structure ready"
-            else:
-
-                return True, "Architecture validation ready (no code yet)"
+            return True, "Architecture validation ready (no code yet)"
         except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Architecture validation failed: {e}"
 
