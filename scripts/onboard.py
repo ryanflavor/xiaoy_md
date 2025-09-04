@@ -12,12 +12,12 @@ from pathlib import Path
 class LinuxOnboardingWizard:
     """Streamlined Linux developer setup"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.start_time = time.time()
         self.checks_passed = []
         self.issues = []
 
-    def run(self):
+    def run(self) -> None:
         """Run the Linux onboarding process"""
         self.print_welcome()
 
@@ -46,7 +46,7 @@ class LinuxOnboardingWizard:
 
         self.print_summary()
 
-    def print_welcome(self):
+    def print_welcome(self) -> None:
         """Print welcome message"""
         print("=" * 60)
         print("🚀 Market Data Service - Development Environment Setup")
@@ -234,7 +234,7 @@ class LinuxOnboardingWizard:
             return True
         return False
 
-    def provide_fix(self, step: str):
+    def provide_fix(self, step: str) -> None:
         """Provide specific fixes for each step"""
         fixes = {
             "Python 3.13 Setup": """
@@ -295,7 +295,7 @@ macOS:
         else:
             print(f"\n   ℹ️  Please check the README.md for {step} instructions.")
 
-    def print_summary(self):
+    def print_summary(self) -> None:
         """Print onboarding summary"""
         elapsed = int(time.time() - self.start_time)
         minutes = elapsed // 60
@@ -326,7 +326,7 @@ macOS:
         print("💬 Questions? Check docs/qa/ for detailed guides.")
 
 
-def main():
+def main() -> None:
     """Main entry point"""
     wizard = LinuxOnboardingWizard()
     wizard.run()

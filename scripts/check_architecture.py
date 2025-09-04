@@ -34,9 +34,9 @@ class HexagonalValidator(ast.NodeVisitor):
         },
     }
 
-    def __init__(self, file_path: Path):
+    def __init__(self, file_path: Path) -> None:
         self.file_path = file_path
-        self.violations = []
+        self.violations: list[str] = []
         self.current_layer = self._detect_layer(file_path)
 
     def _detect_layer(self, path: Path) -> str:
@@ -50,25 +50,25 @@ class HexagonalValidator(ast.NodeVisitor):
             return "adapters"
         return "unknown"
 
-    def visit_Import(self, node):
+    def visit_Import(self, node: ast.Import) -> None:
         """Check import statements"""
         for alias in node.names:
             self._validate_import(alias.name)
         self.generic_visit(node)
 
-    def visit_ImportFrom(self, node):
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Check from...import statements"""
         if node.module:
             self._validate_import(node.module)
         self.generic_visit(node)
 
-    def _validate_import(self, module_name: str):
+    def _validate_import(self, module_name: str) -> None:
         """Validate import against layer rules"""
         if not self.current_layer or self.current_layer == "unknown":
             return
 
         rules = self.LAYER_RULES.get(self.current_layer, {})
-        forbidden = rules.get("forbidden_imports", [])
+        forbidden = rules.get("forbidden_imports", []) if rules else []
 
         for forbidden_pattern in forbidden:
             if forbidden_pattern in module_name:
@@ -150,7 +150,7 @@ def validate_imports_direction() -> tuple[bool, list[str]]:
     return len(violations) == 0, violations
 
 
-def main():
+def main() -> int:
     """Main entry point for architecture validation"""
     print("🔍 Validating Hexagonal Architecture...")
     print("-" * 50)

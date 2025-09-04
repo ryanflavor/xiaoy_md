@@ -128,7 +128,7 @@ To run the same checks that CI performs before pushing code:
 # Run all CI checks in sequence
 uv sync --frozen                              # Install exact dependencies
 uv run black --check src/ tests/ scripts/     # Check code formatting
-uv run mypy src scripts                       # Type checking (excludes tests per config)
+uv run mypy src scripts tests                 # Type checking with relaxed rules for tests
 uv run python scripts/check_architecture.py   # Architecture validation
 uv run pytest tests/ -v --cov=src             # Run test suite with coverage
 
