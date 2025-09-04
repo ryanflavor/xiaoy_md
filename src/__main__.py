@@ -73,12 +73,12 @@ def main() -> None:
 
     try:
         asyncio.run(run_service())
+        sys.exit(0)
     except KeyboardInterrupt:
         sys.exit(0)
     except Exception:
         logging.getLogger(__name__).exception("Fatal application error")
         sys.exit(1)
-    sys.exit(0)  # This line will never be reached but satisfies type checker
 
 
 if __name__ == "__main__":

@@ -160,6 +160,7 @@ def well_formatted_function(x: int, y: int, z: int) -> int:
 
     Returns:
         Sum of the three numbers
+
     """
     return x + y + z
 
@@ -176,6 +177,10 @@ numbers = [1, 2, 3, 4, 5]
         # Create .secrets.baseline file for detect-secrets hook
         secrets_baseline = temp_repo / ".secrets.baseline"
         secrets_baseline.write_text('{"version": "1.4.0", "results": {}}\n')
+
+        # Create README.md (required by pyproject.toml for hatchling)
+        readme = temp_repo / "README.md"
+        readme.write_text("# Test Project\n")
 
         # Stage the files
         subprocess.run(

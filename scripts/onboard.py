@@ -97,7 +97,12 @@ class LinuxOnboardingWizard:
                     ["docker", "--version"], check=False, capture_output=True, text=True
                 )
                 if result.returncode == 0:
-                    version = result.stdout.strip().split()[2].rstrip(",")
+                    stdout_parts = result.stdout.strip().split()
+                    min_version_parts = 3
+                    if len(stdout_parts) >= min_version_parts:
+                        version = stdout_parts[2].rstrip(",")
+                    else:
+                        version = "unknown"
                     return True, f"Docker {version} installed"
             except (OSError, FileNotFoundError):
                 pass

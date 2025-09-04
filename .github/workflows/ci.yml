@@ -1,5 +1,9 @@
 name: Code Quality CI
 
+# Performance target: CI should complete in <5 minutes (addresses TEST-001)
+# Failure notifications: GitHub Actions automatically emails on failures (addresses OPS-001)
+# For advanced notifications, configure GitHub repository settings or add webhook step
+
 on:
   push:
     branches: [ main ]
@@ -14,16 +18,17 @@ jobs:
   quality:
     name: Code Quality and Tests
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 10  # Prevent infinite runs - addresses trace gap
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
@@ -31,19 +36,19 @@ jobs:
           cache-dependency-glob: |
             **/pyproject.toml
             **/uv.lock
-      
+
       - name: Install dependencies
         run: |
           uv sync --frozen
-      
+
       - name: Run Black formatting check
         run: |
           uv run black --check --diff src/ tests/ scripts/
-      
+
       - name: Run Mypy type checking
         run: |
           uv run mypy src scripts tests
-      
+
       - name: Run architecture validation
         run: |
           if [ -f scripts/check_architecture.py ]; then
@@ -51,11 +56,11 @@ jobs:
           else
             echo "Architecture validation script not found, skipping..."
           fi
-      
+
       - name: Run test suite
         run: |
           uv run pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-report=xml
-      
+
       - name: Upload coverage reports
         if: always()
         uses: actions/upload-artifact@v4

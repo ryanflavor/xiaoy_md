@@ -261,7 +261,6 @@ class TestMain:
 class TestModuleEntry:
     """Test module-level entry point."""
 
-    @patch("src.__main__.main")
     def test_module_entry_point(self):
         """Test that module can be run as script.
 
