@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import sys
-from typing import NoReturn
 
 from pythonjsonlogger import jsonlogger
 
@@ -14,20 +13,18 @@ def setup_logging() -> None:
     """Configure application logging."""
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
+    handler = logging.StreamHandler()
     if settings.log_format == "json":
-        handler = logging.StreamHandler()
-        formatter = jsonlogger.JsonFormatter(
+        formatter: logging.Formatter = jsonlogger.JsonFormatter(  # type: ignore[attr-defined]
             fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        handler.setFormatter(formatter)
     else:
-        handler = logging.StreamHandler()
         formatter = logging.Formatter(
             fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        handler.setFormatter(formatter)
+    handler.setFormatter(formatter)
 
     logging.basicConfig(
         level=log_level,
@@ -70,7 +67,7 @@ async def run_service() -> None:
         logger.info("Market Data Service stopped")
 
 
-def main() -> NoReturn:
+def main() -> None:
     """Main entry point for the application."""
     setup_logging()
 
@@ -80,6 +77,7 @@ def main() -> NoReturn:
         sys.exit(0)
     except Exception:
         sys.exit(1)
+    sys.exit(0)  # This line will never be reached but satisfies type checker
 
 
 if __name__ == "__main__":

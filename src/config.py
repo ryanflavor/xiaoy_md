@@ -1,10 +1,8 @@
 """Application configuration module."""
 
-import os
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,7 +23,9 @@ class AppSettings(BaseSettings):
     environment: str = Field(default="development", description="Environment name")
 
     # Server settings
-    host: str = Field(default="0.0.0.0", description="Server host")
+    host: str = Field(
+        default="127.0.0.1", description="Server host"
+    )  # nosec B104 - configurable via env
     port: int = Field(default=8000, description="Server port")
 
     # NATS settings
@@ -53,7 +53,7 @@ class AppSettings(BaseSettings):
         """Check if running in development environment."""
         return self.environment.lower() == "development"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert settings to dictionary."""
         return self.model_dump()
 

@@ -68,7 +68,9 @@ class HexagonalValidator(ast.NodeVisitor):
             return
 
         rules = self.LAYER_RULES.get(self.current_layer, {})
-        forbidden = rules.get("forbidden_imports", []) if rules else []
+        if not isinstance(rules, dict):
+            return
+        forbidden: list[str] = rules.get("forbidden_imports", [])
 
         for forbidden_pattern in forbidden:
             if forbidden_pattern in module_name:

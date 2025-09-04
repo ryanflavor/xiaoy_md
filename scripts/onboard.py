@@ -14,8 +14,8 @@ class LinuxOnboardingWizard:
 
     def __init__(self) -> None:
         self.start_time = time.time()
-        self.checks_passed = []
-        self.issues = []
+        self.checks_passed: list[str] = []
+        self.issues: list[tuple[str, str]] = []
 
     def run(self) -> None:
         """Run the Linux onboarding process"""
@@ -78,7 +78,7 @@ class LinuxOnboardingWizard:
                     return True, f"{distro} {arch} - Perfect for MVP!"
                 else:
                     return False, f"Unsupported architecture: {arch}"
-            except:
+            except Exception:
                 return True, f"{system} system detected"
         elif system == "Darwin":
             return True, f"macOS {arch} - Development supported"
@@ -97,7 +97,7 @@ class LinuxOnboardingWizard:
                 if result.returncode == 0:
                     version = result.stdout.strip().split()[2].rstrip(",")
                     return True, f"Docker {version} installed"
-            except:
+            except Exception:
                 pass
         return False, "Docker not found (optional but recommended)"
 
@@ -119,7 +119,7 @@ class LinuxOnboardingWizard:
                 if result.returncode == 0:
                     return True, f"{result.stdout.strip()} ✨"
                 return False, f"Python 3.13 required, found {version}"
-        except:
+        except Exception:
             return False, "Python not found"
 
     def check_uv(self) -> tuple[bool, str]:

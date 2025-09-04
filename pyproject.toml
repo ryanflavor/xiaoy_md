@@ -135,6 +135,10 @@ exclude = [
     "dist/",
     ".venv/",
     "venv/",
+    "references/",
+    "htmlcov/",
+    ".git/",
+    "__pycache__/",
 ]
 
 # Mypy per-module options

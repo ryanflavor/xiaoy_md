@@ -34,14 +34,17 @@ repos:
       - id: ruff-format
 
   # Type checking with Mypy
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.9.0
+  - repo: local
     hooks:
-      - id: mypy
-        language_version: python3.13
-        args: ['--config-file=pyproject.toml']
-        additional_dependencies: ['pydantic>=2.5.0']
-        files: '^(src|scripts|tests)/.*\.py$'
+      - id: mypy-strict
+        name: Type checking with Mypy
+        entry: uv run mypy
+        args: ['--config-file=pyproject.toml', '.']
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
 
   # Security checks
   - repo: https://github.com/PyCQA/bandit
@@ -49,7 +52,8 @@ repos:
     hooks:
       - id: bandit
         args: ['-r', 'src']
-        exclude: '^tests/'
+        files: '^src/.*\.py$'
+        exclude: '^(tests|references|docs|scripts)/.*'
 
   # Check for secrets
   - repo: https://github.com/Yelp/detect-secrets
@@ -111,4 +115,4 @@ repos:
 
 # Configuration
 default_stages: [pre-commit]
-fail_fast: false
+fail_fast: true  # Stop on first failure to ensure quality
