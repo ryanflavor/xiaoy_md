@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 # Add scripts to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-from onboard import LinuxOnboardingWizard
+from onboard import LinuxOnboardingWizard  # type: ignore[import-not-found]
 
 
 class TestLinuxOnboardingWizard:

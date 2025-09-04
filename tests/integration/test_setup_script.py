@@ -41,9 +41,9 @@ class TestSetupScript:
             content = f.read()
 
         assert "PYTHON_VERSION" in content, "Script must check Python version"
-        assert 'REQUIRED_VERSION="3.13"' in content or "3.13" in content, (
-            "Script must require Python 3.13"
-        )
+        assert (
+            'REQUIRED_VERSION="3.13"' in content or "3.13" in content
+        ), "Script must require Python 3.13"
         assert "exit 1" in content, "Script must exit on version mismatch"
 
     def test_color_codes_defined(self):
@@ -77,9 +77,9 @@ class TestSetupScript:
             content = f.read()
 
         assert "command -v uv" in content, "Script must check if uv is installed"
-        assert "curl -LsSf https://astral.sh/uv/install.sh" in content, (
-            "Script must have uv installation command"
-        )
+        assert (
+            "curl -LsSf https://astral.sh/uv/install.sh" in content
+        ), "Script must have uv installation command"
 
     def test_environment_file_creation(self):
         """Given setup script When checked Then creates .env file."""
@@ -87,18 +87,18 @@ class TestSetupScript:
             content = f.read()
 
         assert ".env" in content, "Script must handle .env file"
-        assert "APP_NAME=market-data-service" in content, (
-            "Script must set default environment variables"
-        )
+        assert (
+            "APP_NAME=market-data-service" in content
+        ), "Script must set default environment variables"
 
     def test_architecture_validation_call(self):
         """Given setup script When checked Then runs architecture validation."""
         with open(self.script_path) as f:
             content = f.read()
 
-        assert "scripts/check_architecture.py" in content, (
-            "Script must run architecture validation"
-        )
+        assert (
+            "scripts/check_architecture.py" in content
+        ), "Script must run architecture validation"
 
     def test_platform_detection(self):
         """Given setup script When checked Then detects OS platform."""
@@ -114,12 +114,12 @@ class TestSetupScript:
         with open(self.script_path) as f:
             content = f.read()
 
-        assert "✅" in content or "✓" in content, (
-            "Script should use checkmarks for success"
-        )
-        assert "Environment setup complete" in content, (
-            "Script must have completion message"
-        )
+        assert (
+            "✅" in content or "✓" in content
+        ), "Script should use checkmarks for success"
+        assert (
+            "Environment setup complete" in content
+        ), "Script must have completion message"
 
     def test_next_steps_instructions(self):
         """Given setup script When checked Then provides next steps."""
@@ -133,9 +133,9 @@ class TestSetupScript:
         ]
 
         for instruction in required_instructions:
-            assert instruction in content, (
-                f"Script must include instruction: {instruction}"
-            )
+            assert (
+                instruction in content
+            ), f"Script must include instruction: {instruction}"
 
 
 class TestSetupScriptExecution:
@@ -190,9 +190,9 @@ class TestCrossPlatformCompatibility:
             content = f.read()
 
         # Check for proper PATH handling
-        assert "PATH=" in content or "export PATH" in content, (
-            "Script should handle PATH for uv installation"
-        )
+        assert (
+            "PATH=" in content or "export PATH" in content
+        ), "Script should handle PATH for uv installation"
 
     def test_error_exit_codes(self):
         """Given setup script When checked Then uses proper exit codes."""

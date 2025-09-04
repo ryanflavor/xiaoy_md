@@ -64,12 +64,12 @@ class TestPreCommitHooks:
         assert config_path.exists(), ".pre-commit-config.yaml not found in project root"
 
         content = config_path.read_text()
-        assert "black" in content.lower(), (
-            "Black formatter not configured in pre-commit"
-        )
-        assert "mypy" in content.lower(), (
-            "Mypy type checker not configured in pre-commit"
-        )
+        assert (
+            "black" in content.lower()
+        ), "Black formatter not configured in pre-commit"
+        assert (
+            "mypy" in content.lower()
+        ), "Mypy type checker not configured in pre-commit"
 
     def test_precommit_hooks_block_unformatted_code(self, temp_repo):
         """Test that pre-commit hooks block commits with unformatted code.

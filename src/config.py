@@ -29,9 +29,15 @@ class AppSettings(BaseSettings):
     port: int = Field(default=8000, description="Server port")
 
     # NATS settings
-    nats_url: str = Field(default="nats://localhost:4222", description="NATS server URL")
-    nats_cluster_id: str = Field(default="market-data-cluster", description="NATS cluster ID")
-    nats_client_id: str = Field(default="market-data-service", description="NATS client ID")
+    nats_url: str = Field(
+        default="nats://localhost:4222", description="NATS server URL"
+    )
+    nats_cluster_id: str = Field(
+        default="market-data-cluster", description="NATS cluster ID"
+    )
+    nats_client_id: str = Field(
+        default="market-data-service", description="NATS client ID"
+    )
 
     # Logging settings
     log_level: str = Field(default="INFO", description="Logging level")

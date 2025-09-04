@@ -1,5 +1,7 @@
 # Market Data Service
 
+![CI Status](https://github.com/yourorg/market-data-service/workflows/Code%20Quality%20CI/badge.svg)
+
 A high-performance market data service built with Python 3.13 using hexagonal architecture principles.
 
 ## Features
@@ -116,6 +118,39 @@ python scripts/check_architecture.py
 
 # Generate dependency graph
 python scripts/visualize_architecture.py
+```
+
+### Running CI Checks Locally
+
+To run the same checks that CI performs before pushing code:
+
+```bash
+# Run all CI checks in sequence
+uv sync --frozen                              # Install exact dependencies
+uv run black --check src/ tests/ scripts/     # Check code formatting
+uv run mypy src scripts                       # Type checking (excludes tests per config)
+uv run python scripts/check_architecture.py   # Architecture validation
+uv run pytest tests/ -v --cov=src             # Run test suite with coverage
+
+# Or create a local CI script
+echo '#!/bin/bash
+set -e  # Exit on first failure
+echo "Installing dependencies..."
+uv sync --frozen
+echo "Checking code format..."
+uv run black --check src/ tests/ scripts/
+echo "Running type checks..."
+uv run mypy src/ tests/ scripts/
+echo "Validating architecture..."
+uv run python scripts/check_architecture.py
+echo "Running tests..."
+uv run pytest tests/ -v --cov=src
+echo "✅ All CI checks passed!"
+' > scripts/ci-local.sh
+chmod +x scripts/ci-local.sh
+
+# Then run with:
+./scripts/ci-local.sh
 ```
 
 ## Project Structure

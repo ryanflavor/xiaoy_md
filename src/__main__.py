@@ -13,7 +13,7 @@ from src.config import settings
 def setup_logging() -> None:
     """Configure application logging."""
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    
+
     if settings.log_format == "json":
         handler = logging.StreamHandler()
         formatter = jsonlogger.JsonFormatter(
@@ -28,7 +28,7 @@ def setup_logging() -> None:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         handler.setFormatter(formatter)
-    
+
     logging.basicConfig(
         level=log_level,
         handlers=[handler],
@@ -38,7 +38,7 @@ def setup_logging() -> None:
 async def run_service() -> None:
     """Run the market data service."""
     logger = logging.getLogger(__name__)
-    
+
     logger.info(
         "Starting Market Data Service",
         extra={
@@ -47,19 +47,19 @@ async def run_service() -> None:
             "environment": settings.environment,
         },
     )
-    
+
     try:
         # TODO: Initialize adapters
         # TODO: Initialize domain services
         # TODO: Initialize application services
         # TODO: Start message consumers
-        
+
         logger.info("Market Data Service started successfully")
-        
+
         # Keep the service running
         while True:
             await asyncio.sleep(1)
-            
+
     except KeyboardInterrupt:
         logger.info("Shutting down Market Data Service...")
     except Exception as e:
@@ -73,7 +73,7 @@ async def run_service() -> None:
 def main() -> NoReturn:
     """Main entry point for the application."""
     setup_logging()
-    
+
     try:
         asyncio.run(run_service())
     except KeyboardInterrupt:
