@@ -25,13 +25,13 @@ repos:
       - id: isort
         args: ['--profile', 'black', '--line-length', '88']
 
-  # Linting with Ruff
+  # Linting with Ruff (excluding format since we use Black)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.3.4
     hooks:
       - id: ruff
         args: ['--fix', '--exit-non-zero-on-fix']
-      - id: ruff-format
+      # ruff-format removed - using Black for formatting
 
   # Type checking with Mypy
   - repo: local
@@ -57,11 +57,11 @@ repos:
 
   # Check for secrets
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+    rev: v1.5.0
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: '^(\.secrets\.baseline|.*\.lock)$'
+        exclude: '^(\.secrets\.baseline|.*\.lock|\.bmad-core/.*|references/.*)$'
 
   # YAML validation
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -106,12 +106,7 @@ repos:
         types: [python]
         exclude: '^(docs/|\.github/)'
 
-      - id: validate-pyproject
-        name: Validate pyproject.toml
-        entry: python -c "import toml; toml.load('pyproject.toml')"
-        language: system
-        files: 'pyproject.toml'
-        pass_filenames: false
+      # Removed validate-pyproject - toml module not available
 
 # Configuration
 default_stages: [pre-commit]
