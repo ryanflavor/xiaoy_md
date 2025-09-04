@@ -36,7 +36,6 @@ dev = [
     "pytest-mock>=3.12.0",
     "black>=24.0.0",
     "mypy>=1.8.0",
-    "isort>=5.13.0",
     "ruff>=0.3.0",
     "pre-commit>=3.6.0",
 ]
@@ -80,18 +79,20 @@ dev-dependencies = [
     "pytest-cov>=4.1.0",
     "black>=24.0.0",
     "mypy>=1.8.0",
-    "isort>=5.13.0",
     "ruff>=0.3.0",
     "pre-commit>=3.6.0",
     "detect-secrets>=1.5.0",
     "tomli>=2.2.1",
 ]
 
-# Black formatter configuration
+# Black: Code formatting (focus on style consistency)
 [tool.black]
 line-length = 88
 target-version = ['py313']
 include = '\.pyi?$'
+preview = true  # Enable preview features for Python 3.13
+
+# Exclude patterns
 extend-exclude = '''
 /(
     \.eggs
@@ -105,8 +106,14 @@ extend-exclude = '''
   | build
   | dist
   | migrations
+  | \.bmad-core
+  | references
 )/
 '''
+
+# Force consistent string quotes
+skip-string-normalization = false  # Normalize to double quotes
+skip-magic-trailing-comma = false  # Keep magic trailing commas
 
 # Mypy type checker configuration
 [tool.mypy]
@@ -161,51 +168,118 @@ ignore_missing_imports = true
 module = "asyncio_mqtt.*"
 ignore_missing_imports = true
 
-# isort import sorter configuration
-[tool.isort]
-profile = "black"
-line_length = 88
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-known_first_party = ["src"]
-sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
-skip_glob = ["*/migrations/*", "*/.venv/*"]
+# isort configuration removed - using Ruff's import sorting (I rules)
 
-# Ruff linter configuration
+# Ruff: Modern Python linter (replaces flake8, isort, pyupgrade, etc.)
 [tool.ruff]
-target-version = "py312"  # Ruff doesn't support py313 yet
-line-length = 88
+target-version = "py313"
+line-length = 88  # Match Black
+
+[tool.ruff.lint]
+# Auto-fix enabled
 fix = true
+
+# Enable comprehensive rule sets
 select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "UP",   # pyupgrade
-    "ARG",  # flake8-unused-arguments
-    "SIM",  # flake8-simplify
+    # Core quality rules
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "N",     # pep8-naming
+    "D",     # pydocstyle (docstring conventions)
+
+    # Advanced code quality
+    "B",     # flake8-bugbear (common bugs)
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "UP",    # pyupgrade (modern Python)
+    "RUF",   # Ruff-specific rules
+
+    # Security & best practices
+    "S",     # bandit (security)
+    "BLE",   # flake8-blind-except
+    "FBT",   # flake8-boolean-trap
+    "A",     # flake8-builtins
+    "COM",   # flake8-commas
+    "ICN",   # flake8-import-conventions
+    "PIE",   # flake8-pie
+    "T20",   # flake8-print
+    "PYI",   # flake8-pyi
+    "PT",    # flake8-pytest-style
+    "Q",     # flake8-quotes
+    "RSE",   # flake8-raise
+    "RET",   # flake8-return
+    "SLF",   # flake8-self
+    "SLOT",  # flake8-slots
+    "TID",   # flake8-tidy-imports
+    "TCH",   # flake8-type-checking
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib
+    "ERA",   # eradicate (commented-out code)
+    "PGH",   # pygrep-hooks
+    "PL",    # pylint
+    "TRY",   # tryceratops
+    "PERF",  # perflint
 ]
+
+# Ignore rules that conflict with Black or are too strict for this project
 ignore = [
-    "E501",  # line too long (handled by black)
-    "B008",  # do not perform function calls in argument defaults
-    "B905",  # zip() without explicit strict= parameter
-    "C901",  # too complex
-    "W191",  # indentation contains tabs
+    # Formatting (handled by Black)
+    "E501",   # line too long
+    "W191",   # indentation contains tabs
+    "E111",   # indentation is not a multiple of four
+    "E114",   # indentation is not a multiple of four (comment)
+    "E117",   # over-indented
+    "D206",   # docstring should be indented with spaces
+    "D300",   # use """triple double quotes"""
+
+    # Too strict for development
+    "D100",   # missing docstring in public module
+    "D101",   # missing docstring in public class
+    "D102",   # missing docstring in public method
+    "D103",   # missing docstring in public function
+    "D104",   # missing docstring in public package
+    "D105",   # missing docstring in magic method
+    "S101",   # use of assert (common in tests)
+    "FBT001", # boolean positional arg
+    "FBT002", # boolean default arg
+    "COM812", # trailing comma (handled by Black)
+    "ISC001", # string concatenation (conflicts with Black)
+
+    # Project-specific ignores
+    "T201",   # print statements (allowed in scripts)
+    "S603",   # subprocess without shell=True check
+    "S607",   # starting process with partial executable path
 ]
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
+# Configure import sorting (replaces isort)
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-single-line = false
+force-sort-within-sections = true
+single-line-exclusions = ["typing"]
 
-[tool.ruff.per-file-ignores]
-"tests/*" = ["ARG", "S101"]
+# Per-file rule customization
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",    # assert statements (standard in tests)
+    "ARG",     # unused arguments (fixtures)
+    "FBT",     # boolean traps (common in test params)
+    "PLR2004", # magic values (test constants)
+    "S603",    # subprocess calls
+    "S607",    # subprocess with shell
+]
+"scripts/*" = [
+    "T201",    # print statements (expected in scripts)
+    "S603",    # subprocess calls
+    "S607",    # subprocess with shell
+    "PLR2004", # magic values (script constants)
+]
+"docs/*" = ["ALL"]  # Documentation can be relaxed
+
+# Disable ruff-format since we use Black
+# [tool.ruff.format]  # Commented out to avoid conflict with Black
 
 # Pytest configuration
 [tool.pytest.ini_options]

@@ -10,28 +10,22 @@ repos:
         always_run: true
         stages: [pre-commit]
 
-  # Code formatting with Black
+  # Code formatting with Black (handles spacing, quotes, line breaks)
   - repo: https://github.com/psf/black
-    rev: 24.10.0  # Updated for Python 3.13 support
+    rev: 24.10.0
     hooks:
       - id: black
         language_version: python3.13
-        args: ['--line-length=88', '--target-version=py313']
+        args: ['--line-length=88', '--target-version=py313', '--preview']
 
-  # Import sorting with isort
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ['--profile', 'black', '--line-length', '88']
-
-  # Linting with Ruff (excluding format since we use Black)
+  # Code quality with Ruff (handles linting, import sorting, security)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.4
+    rev: v0.8.0  # Updated to latest version
     hooks:
       - id: ruff
-        args: ['--fix', '--exit-non-zero-on-fix']
-      # ruff-format removed - using Black for formatting
+        name: "Ruff: Linting & Import Sorting"
+        args: ['--fix', '--exit-non-zero-on-fix', '--show-fixes']
+      # Note: isort removed - Ruff handles import sorting via 'I' rules
 
   # Type checking with Mypy
   - repo: local
