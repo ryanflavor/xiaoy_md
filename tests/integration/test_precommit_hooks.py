@@ -5,10 +5,11 @@ during git commit operations. These tests verify that code quality tools
 (Black, Mypy) are enforced through pre-commit hooks.
 """
 
+from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -112,6 +113,7 @@ x=[1,2,3,4,5]
             cwd=temp_repo,
             capture_output=True,
             text=True,
+            check=False,
         )
 
         # Pre-commit should prevent the commit (non-zero exit code)
@@ -189,6 +191,7 @@ numbers = [1, 2, 3, 4, 5]
             cwd=temp_repo,
             capture_output=True,
             text=True,
+            check=False,
         )
 
         # Commit should succeed with properly formatted code
@@ -216,7 +219,7 @@ numbers = [1, 2, 3, 4, 5]
         # Check that Black line-length in pre-commit matches pyproject.toml
         if "line-length" in pyproject_content and "[tool.black]" in pyproject_content:
             # Extract line-length from pyproject.toml
-            import re
+            # re module imported at top of file
 
             match = re.search(r"line-length\s*=\s*(\d+)", pyproject_content)
             if match:

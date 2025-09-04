@@ -1,9 +1,17 @@
 from datetime import datetime
-from pathlib import Path
 from time import sleep
+from typing import TYPE_CHECKING
 
 from vnpy.event import Event, EventEngine
-from vnpy.trader.constant import Direction, Exchange, Offset, OptionType, OrderType, Product, Status
+from vnpy.trader.constant import (
+    Direction,
+    Exchange,
+    Offset,
+    OptionType,
+    OrderType,
+    Product,
+    Status,
+)
 from vnpy.trader.event import EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
@@ -53,6 +61,9 @@ from ..api import (
     THOST_FTDC_PD_Long,
     THOST_FTDC_PD_Short,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # 委托状态映射
 STATUS_SOPT2VT: dict[str, Status] = {
@@ -135,9 +146,7 @@ symbol_contract_map: dict[str, ContractData] = {}
 
 
 class SoptGateway(BaseGateway):
-    """
-    VeighNa用于对接期权CTP柜台的交易接口。
-    """
+    """VeighNa用于对接期权CTP柜台的交易接口。."""
 
     default_name: str = "SOPT"
 
@@ -154,7 +163,7 @@ class SoptGateway(BaseGateway):
     exchanges: list[str] = list(EXCHANGE_SOPT2VT.values())
 
     def __init__(self, event_engine: EventEngine, gateway_name: str) -> None:
-        """构造函数"""
+        """构造函数."""
         super().__init__(event_engine, gateway_name)
 
         self.td_api: SoptTdApi = SoptTdApi(self)
@@ -163,7 +172,7 @@ class SoptGateway(BaseGateway):
         self.count: int = 0
 
     def connect(self, setting: dict) -> None:
-        """连接交易接口"""
+        """连接交易接口."""
         userid: str = setting["用户名"]
         password: str = setting["密码"]
         brokerid: str = setting["经纪商代码"]
@@ -183,39 +192,39 @@ class SoptGateway(BaseGateway):
         self.init_query()
 
     def subscribe(self, req: SubscribeRequest) -> None:
-        """订阅行情"""
+        """订阅行情."""
         self.md_api.subscribe(req)
 
     def send_order(self, req: OrderRequest) -> str:
-        """委托下单"""
+        """委托下单."""
         return self.td_api.send_order(req)
 
     def cancel_order(self, req: CancelRequest) -> None:
-        """委托撤单"""
+        """委托撤单."""
         self.td_api.cancel_order(req)
 
     def query_account(self) -> None:
-        """查询资金"""
+        """查询资金."""
         self.td_api.query_account()
 
     def query_position(self) -> None:
-        """查询持仓"""
+        """查询持仓."""
         self.td_api.query_position()
 
     def close(self) -> None:
-        """关闭接口"""
+        """关闭接口."""
         self.td_api.close()
         self.md_api.close()
 
     def write_error(self, msg: str, error: dict) -> None:
-        """输出错误信息日志"""
+        """输出错误信息日志."""
         error_id: int = error["ErrorID"]
         error_msg: str = error["ErrorMsg"]
         msg = f"{msg}，代码：{error_id}，信息：{error_msg}"
         self.write_log(msg)
 
     def process_timer_event(self, event: Event) -> None:
-        """定时事件处理"""
+        """定时事件处理."""
         self.count += 1
         if self.count < 2:
             return
@@ -226,7 +235,7 @@ class SoptGateway(BaseGateway):
         self.query_functions.append(func)
 
     def init_query(self) -> None:
-        """初始化查询任务"""
+        """初始化查询任务."""
         self.query_functions: list = [self.query_account, self.query_position]
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
@@ -235,7 +244,7 @@ class SoptMdApi(MdApi):
     """"""
 
     def __init__(self, gateway: SoptGateway) -> None:
-        """构造函数"""
+        """构造函数."""
         super().__init__()
 
         self.gateway: SoptGateway = gateway
@@ -252,17 +261,17 @@ class SoptMdApi(MdApi):
         self.brokerid: str = ""
 
     def onFrontConnected(self) -> None:
-        """服务器连接成功回报"""
+        """服务器连接成功回报."""
         self.gateway.write_log("行情服务器连接成功")
         self.login()
 
     def onFrontDisconnected(self, reason: int) -> None:
-        """服务器连接断开回报"""
+        """服务器连接断开回报."""
         self.login_status = False
         self.gateway.write_log(f"行情服务器连接断开，原因{reason}")
 
     def onRspUserLogin(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """用户登录请求回报"""
+        """用户登录请求回报."""
         if not error["ErrorID"]:
             self.login_status = True
             self.gateway.write_log("行情服务器登录成功")
@@ -273,24 +282,26 @@ class SoptMdApi(MdApi):
             self.gateway.write_error("行情服务器登录失败", error)
 
     def onRspError(self, error: dict, reqid: int, last: bool) -> None:
-        """请求报错回报"""
+        """请求报错回报."""
         self.gateway.write_error("行情接口报错", error)
 
-    def onRspSubMarketData(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """订阅行情回报"""
+    def onRspSubMarketData(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """订阅行情回报."""
         if not error or not error["ErrorID"]:
             return
 
         self.gateway.write_error("行情订阅失败", error)
 
     def onRtnDepthMarketData(self, data: dict) -> None:
-        """行情数据推送"""
+        """行情数据推送."""
         # 过滤没有时间戳的异常行情数据
         if not data["UpdateTime"]:
             return
 
         symbol: str = data["InstrumentID"]
-        contract: ContractData = symbol_contract_map.get(symbol, None)
+        contract: ContractData = symbol_contract_map.get(symbol)
         if not contract:
             return
 
@@ -350,7 +361,7 @@ class SoptMdApi(MdApi):
         self.gateway.on_tick(tick)
 
     def connect(self, address: str, userid: str, password: str, brokerid: str) -> None:
-        """连接服务器"""
+        """连接服务器."""
         self.userid = userid
         self.password = password
         self.brokerid = brokerid
@@ -366,20 +377,24 @@ class SoptMdApi(MdApi):
             self.connect_status = True
 
     def login(self) -> None:
-        """用户登录"""
-        req: dict = {"UserID": self.userid, "Password": self.password, "BrokerID": self.brokerid}
+        """用户登录."""
+        req: dict = {
+            "UserID": self.userid,
+            "Password": self.password,
+            "BrokerID": self.brokerid,
+        }
 
         self.reqid += 1
         self.reqUserLogin(req, self.reqid)
 
     def subscribe(self, req: SubscribeRequest) -> None:
-        """订阅行情"""
+        """订阅行情."""
         if self.login_status:
             self.subscribeMarketData(req.symbol)
         self.subscribed.add(req.symbol)
 
     def close(self) -> None:
-        """关闭连接"""
+        """关闭连接."""
         if self.connect_status:
             self.exit()
 
@@ -388,7 +403,7 @@ class SoptTdApi(TdApi):
     """"""
 
     def __init__(self, gateway: SoptGateway) -> None:
-        """构造函数"""
+        """构造函数."""
         super().__init__()
 
         self.gateway: SoptGateway = gateway
@@ -418,7 +433,7 @@ class SoptTdApi(TdApi):
         self.sysid_orderid_map: dict[str, str] = {}
 
     def onFrontConnected(self) -> None:
-        """服务器连接成功回报"""
+        """服务器连接成功回报."""
         self.gateway.write_log("交易服务器连接成功")
 
         if self.auth_code:
@@ -427,12 +442,14 @@ class SoptTdApi(TdApi):
             self.login()
 
     def onFrontDisconnected(self, reason: int) -> None:
-        """服务器连接断开回报"""
+        """服务器连接断开回报."""
         self.login_status = False
         self.gateway.write_log(f"交易服务器连接断开，原因{reason}")
 
-    def onRspAuthenticate(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """用户授权验证回报"""
+    def onRspAuthenticate(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """用户授权验证回报."""
         if not error["ErrorID"]:
             self.auth_staus = True
             self.gateway.write_log("交易服务器授权验证成功")
@@ -441,7 +458,7 @@ class SoptTdApi(TdApi):
             self.gateway.write_error("交易服务器授权验证失败", error)
 
     def onRspUserLogin(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """用户登录请求回报"""
+        """用户登录请求回报."""
         if not error["ErrorID"]:
             self.frontid = data["FrontID"]
             self.sessionid = data["SessionID"]
@@ -458,7 +475,7 @@ class SoptTdApi(TdApi):
             self.gateway.write_error("交易服务器登录失败", error)
 
     def onRspOrderInsert(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """委托下单失败回报"""
+        """委托下单失败回报."""
         order_ref: str = data["OrderRef"]
         orderid: str = f"{self.frontid}_{self.sessionid}_{order_ref}"
 
@@ -481,11 +498,13 @@ class SoptTdApi(TdApi):
         self.gateway.write_error("交易委托失败", error)
 
     def onRspOrderAction(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """委托撤单失败回报"""
+        """委托撤单失败回报."""
         self.gateway.write_error("交易撤单失败", error)
 
-    def onRspSettlementInfoConfirm(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """确认结算单回报"""
+    def onRspSettlementInfoConfirm(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """确认结算单回报."""
         self.gateway.write_log("结算信息确认成功")
 
         # 由于流控，单次查询可能失败，通过while循环持续尝试，直到成功发出请求
@@ -495,17 +514,18 @@ class SoptTdApi(TdApi):
 
             if not n:
                 break
-            else:
-                sleep(1)
+            sleep(1)
 
-    def onRspQryInvestorPosition(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """持仓查询回报"""
+    def onRspQryInvestorPosition(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """持仓查询回报."""
         if not data:
             return
 
         # 必须已经收到了合约信息后才能处理
         symbol: str = data["InstrumentID"]
-        contract: ContractData = symbol_contract_map.get(symbol, None)
+        contract: ContractData = symbol_contract_map.get(symbol)
 
         if contract:
             # 获取之前缓存的持仓数据缓存
@@ -556,8 +576,10 @@ class SoptTdApi(TdApi):
 
             self.positions.clear()
 
-    def onRspQryTradingAccount(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """资金查询回报"""
+    def onRspQryTradingAccount(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """资金查询回报."""
         if "AccountID" not in data:
             return
 
@@ -571,8 +593,10 @@ class SoptTdApi(TdApi):
 
         self.gateway.on_account(account)
 
-    def onRspQryInstrument(self, data: dict, error: dict, reqid: int, last: bool) -> None:
-        """合约查询回报"""
+    def onRspQryInstrument(
+        self, data: dict, error: dict, reqid: int, last: bool
+    ) -> None:
+        """合约查询回报."""
         product: Product = PRODUCT_SOPT2VT.get(data["ProductClass"], None)
         if product:
             contract: ContractData = ContractData(
@@ -619,7 +643,7 @@ class SoptTdApi(TdApi):
             self.trade_data.clear()
 
     def onRtnOrder(self, data: dict) -> None:
-        """委托更新推送"""
+        """委托更新推送."""
         if not self.contract_inited:
             self.order_data.append(data)
             return
@@ -636,7 +660,11 @@ class SoptTdApi(TdApi):
         dt: datetime = datetime.strptime(timestamp, "%Y%m%d %H:%M:%S")
         dt = dt.replace(tzinfo=CHINA_TZ)
 
-        tp: tuple = (data["OrderPriceType"], data["TimeCondition"], data["VolumeCondition"])
+        tp: tuple = (
+            data["OrderPriceType"],
+            data["TimeCondition"],
+            data["VolumeCondition"],
+        )
 
         order: OrderData = OrderData(
             symbol=symbol,
@@ -657,7 +685,7 @@ class SoptTdApi(TdApi):
         self.sysid_orderid_map[data["OrderSysID"]] = orderid
 
     def onRtnTrade(self, data: dict) -> None:
-        """成交数据推送"""
+        """成交数据推送."""
         if not self.contract_inited:
             self.trade_data.append(data)
             return
@@ -686,9 +714,9 @@ class SoptTdApi(TdApi):
         self.gateway.on_trade(trade)
 
     def onRtnInstrumentStatus(self, data: dict) -> None:
-        """合约交易状态推送"""
+        """合约交易状态推送."""
         symbol: str = data["InstrumentID"]
-        contract: ContractData = symbol_contract_map.get(symbol, None)
+        contract: ContractData = symbol_contract_map.get(symbol)
         if not contract:
             return
 
@@ -696,9 +724,15 @@ class SoptTdApi(TdApi):
         contract.extra["trading_active"] = trading_active
 
     def connect(
-        self, address: str, userid: str, password: str, brokerid: str, auth_code: str, appid: str
+        self,
+        address: str,
+        userid: str,
+        password: str,
+        brokerid: str,
+        auth_code: str,
+        appid: str,
     ) -> None:
-        """连接服务器"""
+        """连接服务器."""
         self.userid = userid
         self.password = password
         self.brokerid = brokerid
@@ -720,7 +754,7 @@ class SoptTdApi(TdApi):
             self.authenticate()
 
     def authenticate(self) -> None:
-        """发起授权验证"""
+        """发起授权验证."""
         req: dict = {
             "UserID": self.userid,
             "BrokerID": self.brokerid,
@@ -732,7 +766,7 @@ class SoptTdApi(TdApi):
         self.reqAuthenticate(req, self.reqid)
 
     def login(self) -> None:
-        """用户登录"""
+        """用户登录."""
         if self.login_failed:
             return
 
@@ -747,7 +781,7 @@ class SoptTdApi(TdApi):
         self.reqUserLogin(req, self.reqid)
 
     def send_order(self, req: OrderRequest) -> str:
-        """委托下单"""
+        """委托下单."""
         if req.offset not in OFFSET_VT2SOPT:
             self.gateway.write_log("请选择开平方向")
             return ""
@@ -795,7 +829,7 @@ class SoptTdApi(TdApi):
         return order.vt_orderid  # type: ignore
 
     def cancel_order(self, req: CancelRequest) -> None:
-        """委托撤单"""
+        """委托撤单."""
         frontid, sessionid, order_ref = req.orderid.split("_")
 
         sopt_req: dict = {
@@ -813,12 +847,12 @@ class SoptTdApi(TdApi):
         self.reqOrderAction(sopt_req, self.reqid)
 
     def query_account(self) -> None:
-        """查询资金"""
+        """查询资金."""
         self.reqid += 1
         self.reqQryTradingAccount({}, self.reqid)
 
     def query_position(self) -> None:
-        """查询持仓"""
+        """查询持仓."""
         if not symbol_contract_map:
             return
 
@@ -828,13 +862,13 @@ class SoptTdApi(TdApi):
         self.reqQryInvestorPosition(req, self.reqid)
 
     def close(self) -> None:
-        """关闭连接"""
+        """关闭连接."""
         if self.connect_status:
             self.exit()
 
 
 def get_option_index(strike_price: float, exchange_instrument_id: str) -> str:
-    """获取期权指数"""
+    """获取期权指数."""
     exchange_instrument_id = exchange_instrument_id.replace(" ", "")
 
     if "M" in exchange_instrument_id:

@@ -68,7 +68,7 @@ async def run_service() -> None:
 
 
 def main() -> None:
-    """Main entry point for the application."""
+    """Start the market data service application."""
     setup_logging()
 
     try:
@@ -76,6 +76,7 @@ def main() -> None:
     except KeyboardInterrupt:
         sys.exit(0)
     except Exception:
+        logging.getLogger(__name__).exception("Fatal application error")
         sys.exit(1)
     sys.exit(0)  # This line will never be reached but satisfies type checker
 

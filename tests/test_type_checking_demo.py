@@ -6,9 +6,7 @@ def test_relaxed_type_checking():
     # This function has no type annotations - that's OK in tests
     user_data = {"name": "Alice", "age": 30}
 
-    # This would be caught by mypy even with relaxed checking
-    # Uncomment to see error: user_data.nmae would show attribute error
-    # assert user_data.nmae == "Alice"
+    # Mypy would catch obvious errors like: user_data.nmae
 
     # But we can write helper functions without type annotations
     def process_name(data):  # No type annotation - allowed in tests

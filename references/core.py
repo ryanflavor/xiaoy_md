@@ -1,5 +1,4 @@
-"""
-Ultra-lightweight NATS IPC SDK - Enterprise-grade Inter-Process Communication
+"""Ultra-lightweight NATS IPC SDK - Enterprise-grade Inter-Process Communication.
 
 This module provides a minimal yet powerful SDK for building distributed systems
 using NATS messaging. It supports RPC calls, broadcast/subscribe patterns, and
@@ -15,29 +14,31 @@ Features:
 """
 
 import asyncio
-import pickle
-import uuid
+from collections.abc import Awaitable, Callable
 import os
-from typing import Any, Callable, Optional, List, Union, Dict, TypeVar, Awaitable
+import pickle
+from typing import TYPE_CHECKING, Any, TypeVar
+import uuid
 
 import nats
 from nats.aio.msg import Msg
-from nats.aio.client import Client
-from nats.aio.subscription import Subscription
+
+if TYPE_CHECKING:
+    from nats.aio.client import Client
+    from nats.aio.subscription import Subscription
 
 # Type definitions
 T = TypeVar("T")
 Handler = Callable[..., Any]
 AsyncHandler = Callable[..., Awaitable[Any]]
-MessageHandler = Callable[[Any], Union[None, Awaitable[None]]]
+MessageHandler = Callable[[Any], None | Awaitable[None]]
 
 # Default timeout from environment or 30 seconds
 DEFAULT_TIMEOUT = float(os.getenv("NATS_TIMEOUT", "30"))
 
 
 class IPCNode:
-    """
-    Enterprise-grade IPC node for NATS-based communication.
+    """Enterprise-grade IPC node for NATS-based communication.
 
     This class provides a high-level interface for inter-process communication
     using NATS messaging. It supports both RPC (request-reply) and pub-sub patterns.
@@ -54,22 +55,23 @@ class IPCNode:
         >>> async with IPCNode("my_service") as node:
         ...     await node.register("add", lambda a, b: a + b)
         ...     result = await node.call("other_service", "multiply", 3, 4)
+
     """
 
     def __init__(
         self,
-        node_id: Optional[str] = None,
-        nats_url: Optional[Union[str, List[str]]] = None,
-        timeout: Optional[float] = None,
+        node_id: str | None = None,
+        nats_url: str | list[str] | None = None,
+        timeout: float | None = None,
     ) -> None:
-        """
-        Initialize an IPC node.
+        """Initialize an IPC node.
 
         Args:
             node_id: Unique identifier for this node. If None, generates a random ID.
             nats_url: NATS server URL(s). Can be a single URL or list for cluster.
                      If None, uses NATS_SERVERS env var or defaults to localhost.
             timeout: Default timeout for RPC calls in seconds. Defaults to 30s.
+
         """
         self.node_id = node_id or f"node_{uuid.uuid4().hex[:8]}"
         # Use provided URL or get from environment or default to localhost
@@ -79,19 +81,19 @@ class IPCNode:
                 nats_url = nats_url.split(",")
         self.nats_url = nats_url
         self.timeout = timeout or DEFAULT_TIMEOUT
-        self.nc: Optional[Client] = None
-        self.methods: Dict[str, Handler] = {}
-        self.subscriptions: List[Subscription] = []
+        self.nc: Client | None = None
+        self.methods: dict[str, Handler] = {}
+        self.subscriptions: list[Subscription] = []
 
     async def connect(self) -> None:
-        """
-        Establish connection to NATS server(s).
+        """Establish connection to NATS server(s).
 
         Connects to the configured NATS server(s) and sets up subscriptions
         for any previously registered methods.
 
         Raises:
             nats.errors.Error: If connection fails
+
         """
         if isinstance(self.nats_url, str):
             self.nc = await nats.connect(self.nats_url)
@@ -103,8 +105,7 @@ class IPCNode:
             await self._subscribe_method(method_name)
 
     async def disconnect(self) -> None:
-        """
-        Gracefully disconnect from NATS.
+        """Gracefully disconnect from NATS.
 
         Unsubscribes from all active subscriptions and closes the NATS connection.
         Safe to call multiple times.
@@ -117,8 +118,7 @@ class IPCNode:
         self.nc = None
 
     async def register(self, name: str, handler: Handler) -> None:
-        """
-        Register a method for RPC exposure.
+        """Register a method for RPC exposure.
 
         The registered method can be called remotely by other nodes using the
         `call` method. Supports both sync and async handlers.
@@ -129,14 +129,14 @@ class IPCNode:
 
         Example:
             >>> await node.register("greet", lambda name: f"Hello {name}!")
+
         """
         self.methods[name] = handler
         if self.nc and self.nc.is_connected:
             await self._subscribe_method(name)
 
     async def call(self, target: str, method: str, *args: Any, **kwargs: Any) -> Any:
-        """
-        Make an RPC call to a remote method.
+        """Make an RPC call to a remote method.
 
         Calls a method registered on another node and waits for the response.
         Supports passing any pickle-serializable arguments.
@@ -158,6 +158,7 @@ class IPCNode:
         Example:
             >>> result = await node.call("math_service", "add", 10, 20)
             >>> config = await node.call("config_service", "get_config", section="db")
+
         """
         if not self.nc or not self.nc.is_connected:
             raise RuntimeError("Not connected to NATS")
@@ -171,7 +172,7 @@ class IPCNode:
             if "error" in result:
                 raise Exception(f"Remote error in {target}.{method}: {result['error']}")
             return result.get("result")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise TimeoutError(
                 f"Call to {target}.{method} timed out after {self.timeout}s"
             )
@@ -182,8 +183,7 @@ class IPCNode:
             raise
 
     async def broadcast(self, channel: str, data: Any) -> None:
-        """
-        Broadcast data to all subscribers of a channel.
+        """Broadcast data to all subscribers of a channel.
 
         Sends data to all nodes subscribed to the specified channel.
         Fire-and-forget operation with no acknowledgment.
@@ -197,14 +197,14 @@ class IPCNode:
 
         Example:
             >>> await node.broadcast("events", {"type": "user_login", "user_id": 123})
+
         """
         if not self.nc or not self.nc.is_connected:
             raise RuntimeError("Not connected to NATS")
         await self.nc.publish(f"broadcast.{channel}", pickle.dumps(data))
 
     async def subscribe(self, channel: str, handler: MessageHandler) -> None:
-        """
-        Subscribe to a broadcast channel.
+        """Subscribe to a broadcast channel.
 
         Registers a handler to be called whenever data is broadcast on the
         specified channel. Handler can be sync or async.
@@ -221,6 +221,7 @@ class IPCNode:
             >>> async def on_event(data):
             ...     print(f"Received: {data}")
             >>> await node.subscribe("events", on_event)
+
         """
         if not self.nc or not self.nc.is_connected:
             raise RuntimeError("Not connected to NATS")
@@ -240,14 +241,14 @@ class IPCNode:
         self.subscriptions.append(sub)
 
     async def _subscribe_method(self, method_name: str) -> None:
-        """
-        Internal method to setup NATS subscription for an RPC method.
+        """Internal method to setup NATS subscription for an RPC method.
 
         Args:
             method_name: Name of the method to subscribe
 
         Raises:
             RuntimeError: If not connected to NATS
+
         """
         if not self.nc or not self.nc.is_connected:
             raise RuntimeError("Not connected to NATS")
@@ -278,7 +279,7 @@ class IPCNode:
                 response = {"result": result}
             except Exception as e:
                 # Include full error information for debugging
-                response = {"error": f"{type(e).__name__}: {str(e)}"}
+                response = {"error": f"{type(e).__name__}: {e!s}"}
 
             await msg.respond(pickle.dumps(response))
 

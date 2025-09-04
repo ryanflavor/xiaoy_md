@@ -1,10 +1,12 @@
 """Unit tests for the main entry point module."""
 
+import contextlib
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import src.__main__ as main_module
 from src.__main__ import main, run_service, setup_logging
 
 
@@ -22,16 +24,18 @@ class TestSetupLogging:
         mock_settings.log_level = "INFO"
         mock_settings.log_format = "json"
 
-        with patch("logging.basicConfig") as mock_basic_config:
-            with patch("logging.StreamHandler") as mock_handler:
-                setup_logging()
+        with (
+            patch("logging.basicConfig") as mock_basic_config,
+            patch("logging.StreamHandler") as mock_handler,
+        ):
+            setup_logging()
 
-                mock_basic_config.assert_called_once()
-                mock_handler.assert_called()
+            mock_basic_config.assert_called_once()
+            mock_handler.assert_called()
 
-                # Verify log level is set correctly
-                call_kwargs = mock_basic_config.call_args[1]
-                assert call_kwargs["level"] == logging.INFO
+            # Verify log level is set correctly
+            call_kwargs = mock_basic_config.call_args[1]
+            assert call_kwargs["level"] == logging.INFO
 
     @patch("src.__main__.settings")
     def test_setup_logging_text_format(self, mock_settings):
@@ -44,16 +48,18 @@ class TestSetupLogging:
         mock_settings.log_level = "DEBUG"
         mock_settings.log_format = "text"
 
-        with patch("logging.basicConfig") as mock_basic_config:
-            with patch("logging.StreamHandler") as mock_handler:
-                setup_logging()
+        with (
+            patch("logging.basicConfig") as mock_basic_config,
+            patch("logging.StreamHandler") as mock_handler,
+        ):
+            setup_logging()
 
-                mock_basic_config.assert_called_once()
-                mock_handler.assert_called()
+            mock_basic_config.assert_called_once()
+            mock_handler.assert_called()
 
-                # Verify log level is set correctly
-                call_kwargs = mock_basic_config.call_args[1]
-                assert call_kwargs["level"] == logging.DEBUG
+            # Verify log level is set correctly
+            call_kwargs = mock_basic_config.call_args[1]
+            assert call_kwargs["level"] == logging.DEBUG
 
     @patch("src.__main__.settings")
     def test_setup_logging_invalid_level(self, mock_settings):
@@ -94,14 +100,15 @@ class TestRunService:
         mock_get_logger.return_value = mock_logger
 
         # Use a side effect to stop the infinite loop after first iteration
-        with patch("asyncio.sleep", side_effect=KeyboardInterrupt):
-            try:
-                await run_service()
-            except KeyboardInterrupt:
-                pass
+        with (
+            patch("asyncio.sleep", side_effect=KeyboardInterrupt),
+            contextlib.suppress(KeyboardInterrupt),
+        ):
+            await run_service()
 
         # Verify startup logging
-        assert mock_logger.info.call_count >= 2
+        min_startup_log_calls = 2
+        assert mock_logger.info.call_count >= min_startup_log_calls
         first_call = mock_logger.info.call_args_list[0]
         assert "Starting Market Data Service" in first_call[0][0]
         assert first_call[1]["extra"]["app_name"] == "test-app"
@@ -119,11 +126,11 @@ class TestRunService:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
-        with patch("asyncio.sleep", side_effect=KeyboardInterrupt):
-            try:
-                await run_service()
-            except KeyboardInterrupt:
-                pass
+        with (
+            patch("asyncio.sleep", side_effect=KeyboardInterrupt),
+            contextlib.suppress(KeyboardInterrupt),
+        ):
+            await run_service()
 
         # Check for shutdown message
         shutdown_logged = any(
@@ -179,11 +186,11 @@ class TestRunService:
             if sleep_count >= max_sleeps:
                 raise KeyboardInterrupt
 
-        with patch("asyncio.sleep", side_effect=mock_sleep):
-            try:
-                await run_service()
-            except KeyboardInterrupt:
-                pass
+        with (
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            contextlib.suppress(KeyboardInterrupt),
+        ):
+            await run_service()
 
         assert sleep_count == max_sleeps
 
@@ -242,9 +249,11 @@ class TestMain:
         """
         mock_setup_logging.side_effect = Exception("Logging setup failed")
 
-        with pytest.raises(Exception) as exc_info:
-            with patch("sys.exit"):
-                main()
+        with (
+            pytest.raises(Exception, match="Logging setup failed") as exc_info,
+            patch("sys.exit"),
+        ):
+            main()
 
         assert "Logging setup failed" in str(exc_info.value)
 
@@ -253,7 +262,7 @@ class TestModuleEntry:
     """Test module-level entry point."""
 
     @patch("src.__main__.main")
-    def test_module_entry_point(self, mock_main):
+    def test_module_entry_point(self):
         """Test that module can be run as script.
 
         Given: Module is run directly
@@ -261,7 +270,6 @@ class TestModuleEntry:
         Then: main() should be called
         """
         # Import the module with __name__ set to __main__
-        import src.__main__ as main_module
 
         # This tests the pattern, though the if __name__ check
         # is already evaluated when the module loads

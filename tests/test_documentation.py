@@ -1,7 +1,7 @@
 """Tests for documentation completeness and accuracy."""
 
-import re
 from pathlib import Path
+import re
 
 
 class TestREADMEValidation:
@@ -12,7 +12,7 @@ class TestREADMEValidation:
         self.readme_path = Path("README.md")
         assert self.readme_path.exists(), "README.md must exist"
 
-        with open(self.readme_path) as f:
+        with self.readme_path.open() as f:
             self.content = f.read()
 
     def test_readme_has_title(self):
@@ -181,9 +181,10 @@ class TestREADMEValidation:
         )
         completeness = (found_sections / len(required_sections)) * 100
 
+        min_completeness_percent = 80
         assert (
-            completeness >= 80
-        ), f"README completeness is {completeness:.1f}%, should be >= 80%"
+            completeness >= min_completeness_percent
+        ), f"README completeness is {completeness:.1f}%, should be >= {min_completeness_percent}%"
 
     def test_no_placeholder_text(self):
         """Given README When checked Then has no placeholder text."""
@@ -204,9 +205,10 @@ class TestREADMEValidation:
         code_block_pattern = r"```\w*\n[^`]+\n```"
         code_blocks = re.findall(code_block_pattern, self.content)
 
+        min_code_blocks = 5
         assert (
-            len(code_blocks) > 5
-        ), "README should have multiple code blocks for commands"
+            len(code_blocks) > min_code_blocks
+        ), f"README should have more than {min_code_blocks} code blocks for commands"
 
     def test_links_format(self):
         """Given README When checked Then links are properly formatted."""
@@ -223,7 +225,7 @@ class TestScriptsDocumentation:
 
     def test_onboarding_script_mentioned(self):
         """Given README When checked Then mentions onboarding wizard."""
-        with open("README.md") as f:
+        with Path("README.md").open() as f:
             content = f.read()
 
         assert (
@@ -232,7 +234,7 @@ class TestScriptsDocumentation:
 
     def test_setup_script_mentioned(self):
         """Given README When checked Then mentions setup script."""
-        with open("README.md") as f:
+        with Path("README.md").open() as f:
             content = f.read()
 
         assert (
@@ -241,7 +243,7 @@ class TestScriptsDocumentation:
 
     def test_architecture_script_mentioned(self):
         """Given README When checked Then mentions architecture validation."""
-        with open("README.md") as f:
+        with Path("README.md").open() as f:
             content = f.read()
 
         assert (

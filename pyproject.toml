@@ -176,6 +176,17 @@ target-version = "py313"
 line-length = 88  # Match Black
 fix = true  # Enable auto-fix - this is Ruff's superpower!
 
+# Exclude reference and build directories
+exclude = [
+    "references/",
+    ".bmad-core/",
+    ".git/",
+    ".venv/",
+    "build/",
+    "dist/",
+    "__pycache__/",
+]
+
 [tool.ruff.lint]
 
 # Enable comprehensive rule sets
@@ -259,23 +270,17 @@ force-single-line = false
 force-sort-within-sections = true
 single-line-exclusions = ["typing"]
 
-# Per-file rule customization
+# Per-file rule customization - NO EVASION
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
-    "S101",    # assert statements (standard in tests)
-    "ARG",     # unused arguments (fixtures)
-    "FBT",     # boolean traps (common in test params)
-    "PLR2004", # magic values (test constants)
-    "S603",    # subprocess calls
-    "S607",    # subprocess with shell
+    "S101",    # assert statements (required by pytest)
 ]
 "scripts/*" = [
-    "T201",    # print statements (expected in scripts)
-    "S603",    # subprocess calls
-    "S607",    # subprocess with shell
-    "PLR2004", # magic values (script constants)
+    "T201",    # print statements (required for user feedback)
 ]
-"docs/*" = ["ALL"]  # Documentation can be relaxed
+"scripts/check_architecture.py" = [
+    "N802",    # AST visitor methods (visit_Import/visit_ImportFrom required by AST API)
+]
 
 # Disable ruff-format since we use Black
 # [tool.ruff.format]  # Commented out to avoid conflict with Black

@@ -1,7 +1,7 @@
 """Unit tests for the onboarding wizard - Critical for first-user experience."""
 
-import sys
 from pathlib import Path
+import sys
 from unittest.mock import Mock, patch
 
 # Add scripts to path for import
@@ -311,14 +311,14 @@ class TestOnboardingIntegration:
 
         wizard = LinuxOnboardingWizard()
 
-        with patch("builtins.print"):
-            with patch("platform.machine", return_value="x86_64"):
-                with patch("builtins.open", create=True) as mock_open:
-                    mock_open.return_value.__enter__.return_value.read.return_value = (
-                        "Ubuntu"
-                    )
-                    with patch("time.time", side_effect=[0, 300]):  # 5 minutes
-                        wizard.run()
+        with (
+            patch("builtins.print"),
+            patch("platform.machine", return_value="x86_64"),
+            patch("builtins.open", create=True) as mock_open,
+        ):
+            mock_open.return_value.__enter__.return_value.read.return_value = "Ubuntu"
+            with patch("time.time", side_effect=[0, 300]):  # 5 minutes
+                wizard.run()
 
         # All checks should pass (we run 8 checks total)
         # But the mock setup only lets the first check run due to our test harness

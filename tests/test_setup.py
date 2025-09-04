@@ -1,13 +1,20 @@
 """Test to verify project setup is correct."""
 
-import sys
 from pathlib import Path
+import sys
+
+import src.adapters
+import src.application
+from src.config import settings
+import src.domain
 
 
 def test_python_version():
     """Verify Python 3.13 is being used."""
-    assert sys.version_info.major == 3
-    assert sys.version_info.minor == 13
+    required_major = 3
+    required_minor = 13
+    assert sys.version_info.major == required_major
+    assert sys.version_info.minor == required_minor
 
 
 def test_project_structure():
@@ -27,17 +34,13 @@ def test_project_structure():
 
 def test_config_import():
     """Verify config can be imported."""
-    from src.config import settings
-
     assert settings.app_name == "market-data-service"
     assert settings.app_version == "0.1.0"
 
 
 def test_architecture_layers():
     """Verify architecture layers can be imported."""
-    import src.adapters
-    import src.application
-    import src.domain
+    # Imports moved to top of file
 
     assert src.domain.__doc__ is not None
     assert src.application.__doc__ is not None

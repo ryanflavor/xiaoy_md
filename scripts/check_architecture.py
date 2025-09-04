@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""
-Hexagonal Architecture Boundary Enforcer
-Prevents architecture violations at commit time
+"""Hexagonal Architecture Boundary Enforcer.
+
+Prevents architecture violations at commit time.
 """
 
 import ast
-import sys
 from pathlib import Path
+import sys
+from typing import ClassVar
 
 
 class HexagonalValidator(ast.NodeVisitor):
-    """AST visitor to validate hexagonal architecture boundaries"""
+    """AST visitor to validate hexagonal architecture boundaries."""
 
-    LAYER_RULES = {
+    LAYER_RULES: ClassVar[dict[str, dict[str, list[str]]]] = {
         "domain": {
             "forbidden_imports": ["adapters", "infrastructure", "api", "web"],
             "allowed_imports": [
@@ -35,35 +36,41 @@ class HexagonalValidator(ast.NodeVisitor):
     }
 
     def __init__(self, file_path: Path) -> None:
+        """Initialize validator for a specific file.
+
+        Args:
+            file_path: Path to the Python file to validate
+
+        """
         self.file_path = file_path
         self.violations: list[str] = []
         self.current_layer = self._detect_layer(file_path)
 
     def _detect_layer(self, path: Path) -> str:
-        """Detect which hexagonal layer this file belongs to"""
+        """Detect which hexagonal layer this file belongs to."""
         parts = path.parts
         if "domain" in parts:
             return "domain"
-        elif "application" in parts:
+        if "application" in parts:
             return "application"
-        elif "adapters" in parts:
+        if "adapters" in parts:
             return "adapters"
         return "unknown"
 
     def visit_Import(self, node: ast.Import) -> None:
-        """Check import statements"""
+        """Check import statements."""
         for alias in node.names:
             self._validate_import(alias.name)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """Check from...import statements"""
+        """Check from...import statements."""
         if node.module:
             self._validate_import(node.module)
         self.generic_visit(node)
 
     def _validate_import(self, module_name: str) -> None:
-        """Validate import against layer rules"""
+        """Validate import against layer rules."""
         if not self.current_layer or self.current_layer == "unknown":
             return
 
@@ -82,7 +89,7 @@ class HexagonalValidator(ast.NodeVisitor):
 
 
 def validate_architecture(src_path: str = "src") -> tuple[bool, list[str]]:
-    """Validate all Python files in src directory"""
+    """Validate all Python files in src directory."""
     violations = []
     src_dir = Path(src_path)
 
@@ -90,7 +97,7 @@ def validate_architecture(src_path: str = "src") -> tuple[bool, list[str]]:
         return True, []  # No source directory yet
 
     for py_file in src_dir.rglob("*.py"):
-        with open(py_file, encoding="utf-8") as f:
+        with py_file.open(encoding="utf-8") as f:
             try:
                 tree = ast.parse(f.read())
                 validator = HexagonalValidator(py_file)
@@ -103,17 +110,16 @@ def validate_architecture(src_path: str = "src") -> tuple[bool, list[str]]:
 
 
 def check_layer_structure() -> tuple[bool, list[str]]:
-    """Check if the proper layer structure exists"""
+    """Check if the proper layer structure exists."""
     required_dirs = [
         Path("src/domain"),
         Path("src/application"),
         Path("src/adapters"),
     ]
 
-    missing_dirs = []
-    for dir_path in required_dirs:
-        if not dir_path.exists():
-            missing_dirs.append(str(dir_path))
+    missing_dirs = [
+        str(dir_path) for dir_path in required_dirs if not dir_path.exists()
+    ]
 
     if missing_dirs:
         return False, [f"Missing required directory: {d}" for d in missing_dirs]
@@ -122,14 +128,14 @@ def check_layer_structure() -> tuple[bool, list[str]]:
 
 
 def validate_imports_direction() -> tuple[bool, list[str]]:
-    """Validate that imports follow the dependency rule (inward only)"""
+    """Validate that imports follow the dependency rule (inward only)."""
     violations = []
 
     # Check domain files don't import from outer layers
     domain_path = Path("src/domain")
     if domain_path.exists():
         for py_file in domain_path.rglob("*.py"):
-            with open(py_file, encoding="utf-8") as f:
+            with py_file.open(encoding="utf-8") as f:
                 content = f.read()
                 if "from src.adapters" in content or "from src.application" in content:
                     violations.append(
@@ -141,7 +147,7 @@ def validate_imports_direction() -> tuple[bool, list[str]]:
     app_path = Path("src/application")
     if app_path.exists():
         for py_file in app_path.rglob("*.py"):
-            with open(py_file, encoding="utf-8") as f:
+            with py_file.open(encoding="utf-8") as f:
                 content = f.read()
                 if "from src.adapters" in content:
                     violations.append(
@@ -153,7 +159,7 @@ def validate_imports_direction() -> tuple[bool, list[str]]:
 
 
 def main() -> int:
-    """Main entry point for architecture validation"""
+    """Validate hexagonal architecture boundaries."""
     print("🔍 Validating Hexagonal Architecture...")
     print("-" * 50)
 
@@ -196,13 +202,12 @@ def main() -> int:
         print("✅ Architecture validation PASSED")
         print("\nYour code follows hexagonal architecture principles!")
         return 0
-    else:
-        print("❌ Architecture validation FAILED")
-        print(f"\nFound {len(all_violations)} violation(s):\n")
-        for violation in all_violations:
-            print(f"  • {violation}")
-        print("\nPlease fix these violations to maintain architecture integrity.")
-        return 1
+    print("❌ Architecture validation FAILED")
+    print(f"\nFound {len(all_violations)} violation(s):\n")
+    for violation in all_violations:
+        print(f"  • {violation}")
+    print("\nPlease fix these violations to maintain architecture integrity.")
+    return 1
 
 
 if __name__ == "__main__":

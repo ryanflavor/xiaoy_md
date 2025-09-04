@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Linux-optimized onboarding wizard for MVP development"""
+"""Linux-optimized onboarding wizard for MVP development."""
+
+# Hook should preserve TRY300 fixes now
 
 import os
+from pathlib import Path
 import platform
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
 
 class LinuxOnboardingWizard:
-    """Streamlined Linux developer setup"""
+    """Streamlined Linux developer setup."""
 
     def __init__(self) -> None:
+        """Initialize the onboarding wizard."""
         self.start_time = time.time()
         self.checks_passed: list[str] = []
         self.issues: list[tuple[str, str]] = []
 
     def run(self) -> None:
-        """Run the Linux onboarding process"""
+        """Run the Linux onboarding process."""
         self.print_welcome()
 
         steps = [
@@ -47,7 +50,7 @@ class LinuxOnboardingWizard:
         self.print_summary()
 
     def print_welcome(self) -> None:
-        """Print welcome message"""
+        """Print welcome message."""
         print("=" * 60)
         print("🚀 Market Data Service - Development Environment Setup")
         print("=" * 60)
@@ -58,14 +61,14 @@ class LinuxOnboardingWizard:
         print(f"\nWelcome, {name}! Let's set up your development environment.\n")
 
     def check_system(self) -> tuple[bool, str]:
-        """Verify system requirements"""
+        """Verify system requirements."""
         system = platform.system()
         arch = platform.machine()
 
         if system == "Linux":
             # Check Linux distribution
             try:
-                with open("/etc/os-release") as f:
+                with Path("/etc/os-release").open() as f:
                     os_info = f.read()
                     if "Ubuntu" in os_info or "Debian" in os_info:
                         distro = "Ubuntu/Debian"
@@ -76,9 +79,12 @@ class LinuxOnboardingWizard:
 
                 if arch in ["x86_64", "aarch64"]:
                     return True, f"{distro} {arch} - Perfect for MVP!"
+
                 else:
+
+
                     return False, f"Unsupported architecture: {arch}"
-            except Exception:
+            except (OSError, FileNotFoundError):
                 return True, f"{system} system detected"
         elif system == "Darwin":
             return True, f"macOS {arch} - Development supported"
@@ -88,44 +94,49 @@ class LinuxOnboardingWizard:
             return False, f"Unsupported system: {system}"
 
     def check_docker(self) -> tuple[bool, str]:
-        """Check Docker installation for containerized development"""
+        """Check Docker installation for containerized development."""
         if shutil.which("docker"):
             try:
                 result = subprocess.run(
-                    ["docker", "--version"], capture_output=True, text=True
+                    ["docker", "--version"], check=False, capture_output=True, text=True
                 )
                 if result.returncode == 0:
                     version = result.stdout.strip().split()[2].rstrip(",")
                     return True, f"Docker {version} installed"
-            except Exception:
+            except (OSError, FileNotFoundError):
                 pass
         return False, "Docker not found (optional but recommended)"
 
     def check_python(self) -> tuple[bool, str]:
-        """Check Python 3.13 installation"""
+        """Check Python 3.13 installation."""
         try:
             result = subprocess.run(
-                ["python3", "--version"], capture_output=True, text=True
+                ["python3", "--version"], check=False, capture_output=True, text=True
             )
             version = result.stdout.strip()
 
             if "3.13" in version:
                 return True, f"{version} ✨"
+            # Try python3.13 specifically
+            result = subprocess.run(
+                ["python3.13", "--version"], check=False, capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return True, f"{result.stdout.strip()} ✨"
+
             else:
-                # Try python3.13 specifically
-                result = subprocess.run(
-                    ["python3.13", "--version"], capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    return True, f"{result.stdout.strip()} ✨"
+
+
                 return False, f"Python 3.13 required, found {version}"
-        except Exception:
+        except (subprocess.SubprocessError, OSError, FileNotFoundError):
             return False, "Python not found"
 
     def check_uv(self) -> tuple[bool, str]:
-        """Check uv installation"""
+        """Check uv installation."""
         if shutil.which("uv"):
-            result = subprocess.run(["uv", "--version"], capture_output=True, text=True)
+            result = subprocess.run(
+                ["uv", "--version"], check=False, capture_output=True, text=True
+            )
             if result.returncode == 0:
                 return True, f"uv {result.stdout.strip()} installed"
 
@@ -134,12 +145,13 @@ class LinuxOnboardingWizard:
         return self.install_uv()
 
     def install_uv(self) -> tuple[bool, str]:
-        """Install uv package manager"""
+        """Install uv package manager."""
         try:
             # Use shell=True for curl pipe
             result = subprocess.run(
                 "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                shell=True,
+                check=False,
+                shell=True,  # nosec B602  # nosec B602  # nosec B602
                 capture_output=True,
                 text=True,
             )
@@ -149,13 +161,16 @@ class LinuxOnboardingWizard:
                 cargo_bin = Path.home() / ".cargo" / "bin"
                 os.environ["PATH"] = f"{cargo_bin}:{os.environ['PATH']}"
                 return True, "uv installed successfully"
+
             else:
+
+
                 return False, f"Failed to install uv: {result.stderr}"
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Failed to install uv: {e}"
 
     def setup_project(self) -> tuple[bool, str]:
-        """Set up project structure and dependencies"""
+        """Set up project structure and dependencies."""
         try:
             # Check if we're in the right directory
             if not Path("pyproject.toml").exists():
@@ -163,23 +178,31 @@ class LinuxOnboardingWizard:
 
             # Install dependencies
             print("   📚 Installing dependencies...")
-            result = subprocess.run(["uv", "sync"], capture_output=True, text=True)
+            result = subprocess.run(
+                ["uv", "sync"], check=False, capture_output=True, text=True
+            )
 
             if result.returncode != 0:
                 return False, f"Dependency installation failed: {result.stderr}"
 
-            return True, "Project setup complete"
-        except Exception as e:
+            else:
+
+
+                return True, "Project setup complete"
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Setup failed: {e}"
 
     def verify_tools(self) -> tuple[bool, str]:
-        """Verify all development tools"""
+        """Verify all development tools."""
         tools = ["black", "mypy", "pytest"]
         missing = []
 
         for tool in tools:
             result = subprocess.run(
-                ["uv", "run", tool, "--version"], capture_output=True, text=True
+                ["uv", "run", tool, "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 missing.append(tool)
@@ -189,25 +212,27 @@ class LinuxOnboardingWizard:
         return True, "All development tools verified"
 
     def validate_architecture(self) -> tuple[bool, str]:
-        """Validate hexagonal architecture setup"""
+        """Validate hexagonal architecture setup."""
         try:
             result = subprocess.run(
                 ["python3", "scripts/check_architecture.py"],
+                check=False,
                 capture_output=True,
                 text=True,
             )
             if result.returncode == 0:
                 return True, "Hexagonal architecture validated"
+            # It's okay if there are no violations on initial setup
+            if "✅ Architecture validation PASSED" in result.stdout:
+                return True, "Architecture structure ready"
             else:
-                # It's okay if there are no violations on initial setup
-                if "✅ Architecture validation PASSED" in result.stdout:
-                    return True, "Architecture structure ready"
+
                 return True, "Architecture validation ready (no code yet)"
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             return False, f"Architecture validation failed: {e}"
 
     def show_quickstart(self) -> tuple[bool, str]:
-        """Show quick start commands"""
+        """Show quick start commands."""
         print("\n" + "=" * 60)
         print("🚀 Quick Start Commands:")
         print("=" * 60)
@@ -226,7 +251,7 @@ class LinuxOnboardingWizard:
         return True, "Ready to develop!"
 
     def offer_fix(self, step: str) -> bool:
-        """Offer to fix issues"""
+        """Offer to fix issues."""
         response = input(f"\n   Would you like help fixing {step}? (y/n): ")
         if response.lower() == "y":
             self.provide_fix(step)
@@ -235,9 +260,10 @@ class LinuxOnboardingWizard:
         return False
 
     def provide_fix(self, step: str) -> None:
-        """Provide specific fixes for each step"""
+        """Provide specific fixes for each step."""
         fixes = {
-            "Python 3.13 Setup": """
+            "Python 3.13 Setup": (
+                """
 📝 To install Python 3.13:
 
 Ubuntu/Debian:
@@ -252,8 +278,10 @@ Alternative (pyenv):
     curl https://pyenv.run | bash
     pyenv install 3.13.0
     pyenv local 3.13.0
-            """,
-            "uv Installation": """
+            """
+            ),
+            "uv Installation": (
+                """
 📝 Manual uv installation:
 
 Linux/macOS:
@@ -262,8 +290,10 @@ Linux/macOS:
 
 Then add to your shell config (~/.bashrc or ~/.zshrc):
     export PATH="$HOME/.cargo/bin:$PATH"
-            """,
-            "Docker Check": """
+            """
+            ),
+            "Docker Check": (
+                """
 📝 Docker installation (optional):
 
 Ubuntu/Debian:
@@ -274,8 +304,10 @@ Ubuntu/Debian:
 
 macOS:
     Download Docker Desktop from https://docker.com
-            """,
-            "Project Setup": """
+            """
+            ),
+            "Project Setup": (
+                """
 📝 Project setup troubleshooting:
 
 1. Ensure you're in the project root:
@@ -287,16 +319,17 @@ macOS:
 
 3. Check Python version:
     python3 --version  # Should be 3.13
-            """,
+            """
+            ),
         }
 
         if step in fixes:
             print(fixes[step])
         else:
-            print(f"\n   ℹ️  Please check the README.md for {step} instructions.")
+            print(f"\n   INFO: Please check the README.md for {step} instructions.")
 
     def print_summary(self) -> None:
-        """Print onboarding summary"""
+        """Print onboarding summary."""
         elapsed = int(time.time() - self.start_time)
         minutes = elapsed // 60
         seconds = elapsed % 60
@@ -319,7 +352,8 @@ macOS:
         else:
             print("\n🎉 Perfect setup! Your environment is fully configured!")
 
-        if elapsed < 900:  # 15 minutes
+        fast_setup_threshold = 900  # 15 minutes
+        if elapsed < fast_setup_threshold:
             print("\n⭐ Excellent! Setup completed in under 15 minutes!")
 
         print("\n📖 Next: Check out the README.md for development workflow.")
@@ -327,7 +361,7 @@ macOS:
 
 
 def main() -> None:
-    """Main entry point"""
+    """Start the onboarding wizard."""
     wizard = LinuxOnboardingWizard()
     wizard.run()
 
