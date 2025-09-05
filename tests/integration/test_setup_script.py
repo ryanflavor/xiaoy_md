@@ -60,7 +60,7 @@ class TestSetupScript:
             content = f.read()
 
         required_dirs = [
-            "src/adapters",
+            "src/infrastructure",
             "src/domain",
             "src/application",
             "tests/unit",

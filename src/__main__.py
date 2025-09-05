@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+import signal
 import sys
 
 from pythonjsonlogger import jsonlogger
 
+from src.application.services import MarketDataService
 from src.config import settings
 
 
@@ -35,6 +37,20 @@ def setup_logging() -> None:
 async def run_service() -> None:
     """Run the market data service."""
     logger = logging.getLogger(__name__)
+    service: MarketDataService | None = None
+    shutdown_event = asyncio.Event()
+
+    # Setup signal handlers for graceful shutdown
+    loop = asyncio.get_running_loop()
+
+    def signal_handler(sig: int) -> None:
+        """Handle shutdown signals."""
+        logger.info(f"Received signal {sig}, initiating graceful shutdown...")
+        shutdown_event.set()
+
+    # Register signal handlers for asyncio
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, signal_handler, sig)
 
     logger.info(
         "Starting Market Data Service",
@@ -47,24 +63,27 @@ async def run_service() -> None:
 
     try:
         # Initialize service components
-        # Adapters will be initialized here when implemented
-        # Domain services will be initialized here when implemented
-        # Application services will be initialized here when implemented
-        # Message consumers will be started here when implemented
+        service = MarketDataService()
+        await service.initialize()
 
         logger.info("Market Data Service started successfully")
 
-        # Keep the service running
-        while True:
-            await asyncio.sleep(1)
+        # Keep the service running until shutdown signal
+        await shutdown_event.wait()
 
-    except KeyboardInterrupt:
-        logger.info("Shutting down Market Data Service...")
     except Exception as e:
         logger.exception("Fatal error in Market Data Service", exc_info=e)
         raise
     finally:
-        # Cleanup resources when implemented
+        # Cleanup resources
+        logger.info("Shutting down Market Data Service...")
+        if service:
+            await service.shutdown()
+
+        # Remove signal handlers
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(sig)
+
         logger.info("Market Data Service stopped")
 
 

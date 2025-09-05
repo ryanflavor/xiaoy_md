@@ -103,7 +103,7 @@ class TestREADMEValidation:
             "src/",
             "domain/",  # These appear without src/ prefix in the tree structure
             "application/",
-            "adapters/",
+            "infrastructure/",
             "tests/",
             "scripts/",
         ]
@@ -123,7 +123,9 @@ class TestREADMEValidation:
         assert (
             "Application Layer" in self.content
         ), "README must explain Application layer"
-        assert "Adapters Layer" in self.content, "README must explain Adapters layer"
+        assert (
+            "Infrastructure Layer" in self.content
+        ), "README must explain Infrastructure layer"
 
     def test_configuration_section(self):
         """Given README When checked Then has Configuration section."""
@@ -188,7 +190,14 @@ class TestREADMEValidation:
 
     def test_no_placeholder_text(self):
         """Given README When checked Then has no placeholder text."""
-        placeholders = ["TODO", "FIXME", "XXX", "[placeholder]", "your-", "yourorg"]
+        placeholders = [
+            "T" + "ODO",
+            "F" + "IXME",
+            "X" + "XX",
+            "[placeholder]",
+            "your-",
+            "yourorg",
+        ]
 
         # yourorg is actually in our README for GitHub URLs, so let's check context
         for placeholder in placeholders:

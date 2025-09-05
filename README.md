@@ -164,7 +164,7 @@ market-data-service/
 │   ├── onboard.py
 │   └── setup.sh
 ├── src/                  # Source code
-│   ├── adapters/         # External interfaces (DB, API, Message Queue)
+│   ├── infrastructure/   # External interfaces (DB, API, Message Queue)
 │   ├── application/      # Use cases and application services
 │   ├── domain/           # Business logic and entities
 │   ├── config.py         # Configuration management
@@ -186,11 +186,11 @@ This project follows **Hexagonal Architecture** (Ports and Adapters) principles:
 
 - **Domain Layer**: Pure business logic with no external dependencies
 - **Application Layer**: Use cases that orchestrate domain logic
-- **Adapters Layer**: Implementations of external interfaces
+- **Infrastructure Layer**: Implementations of external interfaces
 
 ### Key Principles
 
-1. **Dependency Rule**: Dependencies only point inward (adapters → application → domain)
+1. **Dependency Rule**: Dependencies only point inward (infrastructure → application → domain)
 2. **Immutable Domain Objects**: Core business entities are immutable
 3. **Port Interfaces**: All external dependencies are abstracted behind interfaces
 4. **Test-Driven Development**: Write tests first, then implementation

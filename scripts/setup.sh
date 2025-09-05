@@ -64,7 +64,7 @@ esac
 
 # Create project structure
 echo -e "\n${YELLOW}📁 Verifying project structure...${NC}"
-DIRS=("src/adapters" "src/domain" "src/application" "tests/unit" "tests/integration" "scripts")
+DIRS=("src/infrastructure" "src/domain" "src/application" "tests/unit" "tests/integration" "scripts")
 for dir in "${DIRS[@]}"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"

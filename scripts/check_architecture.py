@@ -15,7 +15,7 @@ class HexagonalValidator(ast.NodeVisitor):
 
     LAYER_RULES: ClassVar[dict[str, dict[str, list[str]]]] = {
         "domain": {
-            "forbidden_imports": ["adapters", "infrastructure", "api", "web"],
+            "forbidden_imports": ["infrastructure", "api", "web"],
             "allowed_imports": [
                 "domain",
                 "typing",
@@ -26,11 +26,11 @@ class HexagonalValidator(ast.NodeVisitor):
             ],
         },
         "application": {
-            "forbidden_imports": ["adapters", "infrastructure", "api", "web"],
+            "forbidden_imports": ["infrastructure", "api", "web"],
             "allowed_imports": ["domain", "application", "typing"],
         },
-        "adapters": {
-            "forbidden_imports": [],  # Adapters can import from anywhere
+        "infrastructure": {
+            "forbidden_imports": [],  # Infrastructure can import from anywhere
             "allowed_imports": [],  # No restrictions (empty list means allow all)
         },
     }
@@ -53,8 +53,8 @@ class HexagonalValidator(ast.NodeVisitor):
             return "domain"
         if "application" in parts:
             return "application"
-        if "adapters" in parts:
-            return "adapters"
+        if "infrastructure" in parts:
+            return "infrastructure"
         return "unknown"
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -114,7 +114,7 @@ def check_layer_structure() -> tuple[bool, list[str]]:
     required_dirs = [
         Path("src/domain"),
         Path("src/application"),
-        Path("src/adapters"),
+        Path("src/infrastructure"),
     ]
 
     missing_dirs = [
@@ -137,10 +137,13 @@ def validate_imports_direction() -> tuple[bool, list[str]]:
         for py_file in domain_path.rglob("*.py"):
             with py_file.open(encoding="utf-8") as f:
                 content = f.read()
-                if "from src.adapters" in content or "from src.application" in content:
+                if (
+                    "from src.infrastructure" in content
+                    or "from src.application" in content
+                ):
                     violations.append(
                         f"Domain violation in {py_file}: "
-                        "Domain cannot import from adapters or application"
+                        "Domain cannot import from infrastructure or application"
                     )
 
     # Check application files don't import from adapters
@@ -149,10 +152,10 @@ def validate_imports_direction() -> tuple[bool, list[str]]:
         for py_file in app_path.rglob("*.py"):
             with py_file.open(encoding="utf-8") as f:
                 content = f.read()
-                if "from src.adapters" in content:
+                if "from src.infrastructure" in content:
                     violations.append(
                         f"Application violation in {py_file}: "
-                        "Application cannot import from adapters"
+                        "Application cannot import from infrastructure"
                     )
 
     return len(violations) == 0, violations

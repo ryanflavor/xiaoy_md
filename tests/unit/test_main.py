@@ -1,8 +1,7 @@
 """Unit tests for the main entry point module."""
 
-import contextlib
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -85,7 +84,10 @@ class TestRunService:
     @pytest.mark.asyncio
     @patch("src.__main__.settings")
     @patch("src.__main__.logging.getLogger")
-    async def test_run_service_startup(self, mock_get_logger, mock_settings):
+    @patch("src.__main__.MarketDataService")
+    async def test_run_service_startup(
+        self, mock_service_class, mock_get_logger, mock_settings
+    ):
         """Test service startup logging.
 
         Given: Service is starting
@@ -99,11 +101,31 @@ class TestRunService:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
-        # Use a side effect to stop the infinite loop after first iteration
-        with (
-            patch("asyncio.sleep", side_effect=KeyboardInterrupt),
-            contextlib.suppress(KeyboardInterrupt),
-        ):
+        # Mock the service
+        mock_service = AsyncMock()
+        mock_service_class.return_value = mock_service
+
+        # Create a task that sets shutdown_event after startup
+        async def trigger_shutdown():
+            import asyncio
+
+            await asyncio.sleep(0.01)  # Let startup complete
+            # Trigger shutdown by calling signal handler directly
+
+            # Find and call the signal handler
+            for call_args in mock_get_logger.return_value.info.call_args_list:
+                if "Starting Market Data Service" in str(call_args):
+                    # Simulate shutdown by completing the wait
+                    return
+
+        # Use asyncio.Event patch to immediately complete
+        with patch("asyncio.Event") as mock_event:
+            mock_shutdown_event = AsyncMock()
+            mock_shutdown_event.wait = AsyncMock(
+                return_value=None
+            )  # Immediately complete
+            mock_event.return_value = mock_shutdown_event
+
             await run_service()
 
         # Verify startup logging
@@ -116,20 +138,29 @@ class TestRunService:
 
     @pytest.mark.asyncio
     @patch("src.__main__.logging.getLogger")
-    async def test_run_service_keyboard_interrupt(self, mock_get_logger):
+    @patch("src.__main__.MarketDataService")
+    async def test_run_service_keyboard_interrupt(
+        self, mock_service_class, mock_get_logger
+    ):
         """Test graceful shutdown on keyboard interrupt.
 
         Given: Service is running
-        When: KeyboardInterrupt is raised
+        When: Shutdown event is triggered
         Then: Should log shutdown message
         """
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
-        with (
-            patch("asyncio.sleep", side_effect=KeyboardInterrupt),
-            contextlib.suppress(KeyboardInterrupt),
-        ):
+        # Mock the service
+        mock_service = AsyncMock()
+        mock_service_class.return_value = mock_service
+
+        # Mock shutdown event to complete immediately
+        with patch("asyncio.Event") as mock_event:
+            mock_shutdown_event = AsyncMock()
+            mock_shutdown_event.wait = AsyncMock(return_value=None)
+            mock_event.return_value = mock_shutdown_event
+
             await run_service()
 
         # Check for shutdown message
@@ -140,7 +171,10 @@ class TestRunService:
 
     @pytest.mark.asyncio
     @patch("src.__main__.logging.getLogger")
-    async def test_run_service_exception_handling(self, mock_get_logger):
+    @patch("src.__main__.MarketDataService")
+    async def test_run_service_exception_handling(
+        self, mock_service_class, mock_get_logger
+    ):
         """Test exception handling in service.
 
         Given: Service encounters an unexpected error
@@ -150,25 +184,28 @@ class TestRunService:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
+        # Make service initialization fail
         test_error = RuntimeError("Test error")
-        with patch("asyncio.sleep", side_effect=test_error):
-            with pytest.raises(RuntimeError) as exc_info:
-                await run_service()
+        mock_service_class.side_effect = test_error
 
-            assert str(exc_info.value) == "Test error"
-            mock_logger.exception.assert_called_once()
+        with pytest.raises(RuntimeError) as exc_info:
+            await run_service()
+
+        assert str(exc_info.value) == "Test error"
+        mock_logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("src.__main__.settings")
     @patch("src.__main__.logging.getLogger")
+    @patch("src.__main__.MarketDataService")
     async def test_run_service_continuous_operation(
-        self, mock_get_logger, mock_settings
+        self, mock_service_class, mock_get_logger, mock_settings
     ):
-        """Test that service continues running in loop.
+        """Test that service continues running until shutdown.
 
         Given: Service starts successfully
         When: No interruption occurs
-        Then: Should continue running in sleep loop
+        Then: Should continue running until shutdown event
         """
         mock_settings.app_name = "test"
         mock_settings.app_version = "1.0"
@@ -177,22 +214,21 @@ class TestRunService:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
-        sleep_count = 0
-        max_sleeps = 3
+        # Mock the service
+        mock_service = AsyncMock()
+        mock_service_class.return_value = mock_service
 
-        async def mock_sleep(_):
-            nonlocal sleep_count
-            sleep_count += 1
-            if sleep_count >= max_sleeps:
-                raise KeyboardInterrupt
+        # Mock shutdown event to complete after verifying startup
+        with patch("asyncio.Event") as mock_event:
+            mock_shutdown_event = AsyncMock()
+            mock_shutdown_event.wait = AsyncMock(return_value=None)
+            mock_event.return_value = mock_shutdown_event
 
-        with (
-            patch("asyncio.sleep", side_effect=mock_sleep),
-            contextlib.suppress(KeyboardInterrupt),
-        ):
             await run_service()
 
-        assert sleep_count == max_sleeps
+        # Verify proper startup and shutdown sequence
+        mock_service.initialize.assert_called_once()
+        mock_service.shutdown.assert_called_once()
 
 
 class TestMain:

@@ -263,6 +263,7 @@ ignore = [
     "T201",   # print statements (allowed in scripts)
     "S603",   # subprocess without shell=True check
     "S607",   # starting process with partial executable path
+    "TRY003", # Long messages in exceptions are fine for our custom errors
 ]
 
 # Configure import sorting (replaces isort)

@@ -3,10 +3,10 @@
 from pathlib import Path
 import sys
 
-import src.adapters
 import src.application
 from src.config import settings
 import src.domain
+import src.infrastructure
 
 
 def test_python_version():
@@ -22,7 +22,7 @@ def test_project_structure():
     required_dirs = [
         "src/domain",
         "src/application",
-        "src/adapters",
+        "src/infrastructure",
         "tests/unit",
         "tests/integration",
         "scripts",
@@ -44,4 +44,4 @@ def test_architecture_layers():
 
     assert src.domain.__doc__ is not None
     assert src.application.__doc__ is not None
-    assert src.adapters.__doc__ is not None
+    assert src.infrastructure.__doc__ is not None

@@ -57,6 +57,22 @@ class AppSettings(BaseSettings):
         """Convert settings to dictionary."""
         return self.model_dump()
 
+    def to_dict_safe(self) -> dict[str, Any]:
+        """Convert settings to dictionary with sensitive fields masked."""
+        data = self.model_dump()
+        # Mask sensitive fields
+        sensitive_fields = ["nats_url", "nats_cluster_id", "nats_client_id"]
+        for field in sensitive_fields:
+            if data.get(field):
+                # Keep first and last few chars visible for debugging
+                value = str(data[field])
+                min_mask_length = 8
+                if len(value) > min_mask_length:
+                    data[field] = f"{value[:4]}...{value[-2:]}"
+                else:
+                    data[field] = "***"
+        return data
+
 
 # Global settings instance
 settings = AppSettings()
