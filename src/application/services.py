@@ -29,6 +29,10 @@ class MarketDataService:
     to message publishing and storage.
     """
 
+    # Rate limit configuration constants
+    RATE_LIMIT_WINDOW_SECONDS = 60.0
+    RATE_LIMIT_MAX_REQUESTS = 50
+
     def __init__(
         self,
         market_data_port: MarketDataPort | None = None,
@@ -49,10 +53,14 @@ class MarketDataService:
         self._subscriptions: dict[str, MarketDataSubscription] = {}
 
         # Simple rate limiting implementation
-        self._subscribe_timestamps: deque[float] = deque(maxlen=50)
-        self._unsubscribe_timestamps: deque[float] = deque(maxlen=50)
-        self._rate_limit_window = 60.0  # 60 second window
-        self._rate_limit_max = 50  # Max 50 requests per window
+        self._subscribe_timestamps: deque[float] = deque(
+            maxlen=self.RATE_LIMIT_MAX_REQUESTS
+        )
+        self._unsubscribe_timestamps: deque[float] = deque(
+            maxlen=self.RATE_LIMIT_MAX_REQUESTS
+        )
+        self._rate_limit_window = self.RATE_LIMIT_WINDOW_SECONDS
+        self._rate_limit_max = self.RATE_LIMIT_MAX_REQUESTS
 
     def _check_rate_limit(self, timestamps: deque[float]) -> bool:
         """Check if an operation is allowed under rate limiting.
@@ -130,10 +138,10 @@ class MarketDataService:
         """
         # Check rate limit
         if not self._check_rate_limit(self._subscribe_timestamps):
-            raise RateLimitError
+            raise RateLimitError("Rate limit exceeded")
 
         if not self.market_data_port:
-            raise ConfigurationError
+            raise ConfigurationError("Port not configured")
 
         subscription = await self.market_data_port.subscribe(symbol)
         self._subscriptions[subscription.subscription_id] = subscription
@@ -156,7 +164,7 @@ class MarketDataService:
         """
         # Check rate limit
         if not self._check_rate_limit(self._unsubscribe_timestamps):
-            raise RateLimitError
+            raise RateLimitError("Rate limit exceeded")
 
         if subscription_id not in self._subscriptions:
             logger.warning(f"Subscription {subscription_id} not found")
@@ -233,3 +241,48 @@ class MarketDataService:
         # Add more health checks for other ports as needed
 
         return health
+
+    # Testing helper methods - provide controlled access for testing
+    def get_rate_limit_status(self, operation: str = "subscribe") -> dict:
+        """Get current rate limit status for testing purposes.
+
+        Args:
+            operation: Either 'subscribe' or 'unsubscribe'
+
+        Returns:
+            dict: Status including current count and whether limit is reached
+
+        """
+        timestamps = (
+            self._subscribe_timestamps
+            if operation == "subscribe"
+            else self._unsubscribe_timestamps
+        )
+        now = time.time()
+        cutoff = now - self._rate_limit_window
+        recent_count = sum(1 for ts in timestamps if ts > cutoff)
+
+        return {
+            "current_count": recent_count,
+            "max_allowed": self._rate_limit_max,
+            "window_seconds": self._rate_limit_window,
+            "is_limited": recent_count >= self._rate_limit_max,
+        }
+
+    def simulate_rate_limit_state(self, operation: str, count: int) -> None:
+        """Set rate limit state for testing purposes.
+
+        Args:
+            operation: Either 'subscribe' or 'unsubscribe'
+            count: Number of recent requests to simulate
+
+        """
+        if operation == "subscribe":
+            timestamps = self._subscribe_timestamps
+        else:
+            timestamps = self._unsubscribe_timestamps
+
+        timestamps.clear()
+        now = time.time()
+        for _ in range(count):
+            timestamps.append(now)
