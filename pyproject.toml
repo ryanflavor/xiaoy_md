@@ -257,13 +257,11 @@ ignore = [
     "FBT002", # boolean default arg
     "COM812", # trailing comma (handled by Black)
     "ISC001", # string concatenation (conflicts with Black)
-    "TRY300", # try-else structure (conflicts with Black formatting)
 
     # Project-specific ignores
     "T201",   # print statements (allowed in scripts)
     "S603",   # subprocess without shell=True check
     "S607",   # starting process with partial executable path
-    "TRY003", # Long messages in exceptions are fine for our custom errors
 ]
 
 # Configure import sorting (replaces isort)
