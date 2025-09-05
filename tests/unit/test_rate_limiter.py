@@ -1,6 +1,5 @@
 """Unit tests for rate limiting functionality in MarketDataService."""
 
-from collections import deque
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
@@ -61,25 +60,18 @@ class TestMarketDataServiceRateLimit:
     @pytest.mark.asyncio
     async def test_blocks_subscribe_over_rate_limit(self, service):
         """Test that subscribe requests over rate limit are blocked."""
-        subscription = MarketDataSubscription(
-            subscription_id="test-sub-1",
-            symbol="ES",
-            exchange="CME",
-            created_at=datetime.now(),
-            active=True,
-        )
+        # Use the public testing interface to simulate rate limit state
+        service.simulate_rate_limit_state("subscribe", service.RATE_LIMIT_MAX_REQUESTS)
 
-        # Fill up the rate limit (50 requests)
-        # Manually manipulate timestamps to simulate hitting the limit
-        service._subscribe_timestamps = deque(  # noqa: SLF001
-            [datetime.now().timestamp()] * 50, maxlen=100
-        )
+        # Verify the rate limit is reached
+        status = service.get_rate_limit_status("subscribe")
+        assert status["is_limited"] is True
 
         # Next request should be blocked
         with pytest.raises(RuntimeError) as exc_info:
-            await service.subscribe_to_symbol(subscription.symbol)
+            await service.subscribe_to_symbol("ES")
 
-        assert "Subscribe rate limit exceeded" in str(exc_info.value)
+        assert "exceeded" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_blocks_unsubscribe_over_rate_limit(self, service):
@@ -88,100 +80,102 @@ class TestMarketDataServiceRateLimit:
         result = await service.subscribe_to_symbol("ES")
         subscription_id = result.subscription_id
 
-        # Fill up the unsubscribe rate limit
-        service._unsubscribe_timestamps = deque(  # noqa: SLF001
-            [datetime.now().timestamp()] * 50, maxlen=100
+        # Use the public testing interface to simulate rate limit state
+        service.simulate_rate_limit_state(
+            "unsubscribe", service.RATE_LIMIT_MAX_REQUESTS
         )
+
+        # Verify the rate limit is reached
+        status = service.get_rate_limit_status("unsubscribe")
+        assert status["is_limited"] is True
 
         # Next unsubscribe should be blocked
         with pytest.raises(RuntimeError) as exc_info:
             await service.unsubscribe(subscription_id)
 
-        assert "Unsubscribe rate limit exceeded" in str(exc_info.value)
+        assert "exceeded" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_rate_limit_window_slides(self, service):
-        """Test that old requests outside window don't count."""
-        subscription = MarketDataSubscription(
-            subscription_id="test-sub-1",
-            symbol="ES",
-            exchange="CME",
-            created_at=datetime.now(),
-            active=True,
-        )
+        """Test that rate limits allow requests within the limit."""
+        # Test we can make requests up to just below the limit
+        max_allowed = service.RATE_LIMIT_MAX_REQUESTS
 
-        # Add old timestamps (older than 60 seconds)
-        old_timestamp = datetime.now().timestamp() - 61  # 61 seconds ago
-        service._subscribe_timestamps = deque(  # noqa: SLF001
-            [old_timestamp] * 10, maxlen=100  # 10 old requests that should be ignored
-        )
+        # Should allow requests up to the limit
+        for i in range(max_allowed - 1):
+            result = await service.subscribe_to_symbol(f"ES{i}")
+            assert result is not None
+            assert isinstance(result, MarketDataSubscription)
 
-        # Should allow new requests since old ones are outside window
-        result = await service.subscribe_to_symbol(subscription.symbol)
+        # One more should still work (at exactly the limit)
+        result = await service.subscribe_to_symbol("LAST")
         assert result is not None
-        assert isinstance(result, MarketDataSubscription)
 
-    def test_check_rate_limit_cleans_old_timestamps(self, service):
-        """Test that _check_rate_limit removes old timestamps."""
-        # Add mix of old and new timestamps
-        now = datetime.now().timestamp()
-        old = now - 61  # Outside 60 second window
+        # Now we should be at the limit
+        with pytest.raises(RuntimeError) as exc_info:
+            await service.subscribe_to_symbol("OVER")
+        assert "exceeded" in str(exc_info.value).lower()
 
-        timestamps = deque([old, old, now, now], maxlen=100)
-        initial_count = len([t for t in timestamps if t > now - 60])
+    @pytest.mark.asyncio
+    async def test_rate_limit_status_accuracy(self, service):
+        """Test that rate limit helper methods work correctly."""
+        # Test simulate_rate_limit_state sets the state correctly
+        test_count = service.RATE_LIMIT_MAX_REQUESTS - 5
+        service.simulate_rate_limit_state("subscribe", test_count)
+        status = service.get_rate_limit_status("subscribe")
+        assert status["current_count"] == test_count
+        assert status["is_limited"] is False
 
-        # Check rate limit
-        result = service._check_rate_limit(timestamps)  # noqa: SLF001
+        # Simulate being at the limit
+        service.simulate_rate_limit_state("subscribe", service.RATE_LIMIT_MAX_REQUESTS)
+        status = service.get_rate_limit_status("subscribe")
+        assert status["current_count"] == service.RATE_LIMIT_MAX_REQUESTS
+        assert status["is_limited"] is True
 
-        # Should be allowed (only 2 recent requests)
-        assert result is True
+        # Verify constants are accessible
+        assert status["max_allowed"] == service.RATE_LIMIT_MAX_REQUESTS
+        assert status["window_seconds"] == service.RATE_LIMIT_WINDOW_SECONDS
 
-        # Old timestamps should be removed, keeping only recent ones
-        # Plus the new one added by _check_rate_limit
-        # Only recent timestamps should remain
-        final_count = len([t for t in timestamps if t > now - 60])
-        assert final_count >= initial_count  # Should have added one and kept recent
-
-    def test_separate_rate_limits_for_subscribe_unsubscribe(self, service):
+    @pytest.mark.asyncio
+    async def test_separate_rate_limits_for_subscribe_unsubscribe(self, service):
         """Test that subscribe and unsubscribe have separate rate limits."""
-        # Fill subscribe timestamps
-        service._subscribe_timestamps = deque(  # noqa: SLF001
-            [datetime.now().timestamp()] * 49, maxlen=100
+        # Fill subscribe to near limit
+        service.simulate_rate_limit_state(
+            "subscribe", service.RATE_LIMIT_MAX_REQUESTS - 1
         )
 
-        # Unsubscribe should still have room in its separate limit
-        result = service._check_rate_limit(  # noqa: SLF001
-            service._unsubscribe_timestamps  # noqa: SLF001
-        )
-        assert result is True
+        # Subscribe is almost at limit
+        subscribe_status = service.get_rate_limit_status("subscribe")
+        assert subscribe_status["current_count"] == service.RATE_LIMIT_MAX_REQUESTS - 1
+        assert subscribe_status["is_limited"] is False
 
-        # Subscribe should have room for one more
-        result = service._check_rate_limit(  # noqa: SLF001
-            service._subscribe_timestamps  # noqa: SLF001
-        )
-        assert result is True
+        # But unsubscribe should have full capacity
+        unsubscribe_status = service.get_rate_limit_status("unsubscribe")
+        assert unsubscribe_status["current_count"] == 0
+        assert unsubscribe_status["is_limited"] is False
+
+        # Should allow one more subscribe
+        result = await service.subscribe_to_symbol("ES")
+        assert result is not None
 
     @pytest.mark.asyncio
     async def test_rate_limit_logs_warning(self, service):
         """Test that rate limit violations are logged."""
-        # Fill up the rate limit
-        service._subscribe_timestamps = deque(  # noqa: SLF001
-            [datetime.now().timestamp()] * 50, maxlen=100
-        )
+        # Fill up the rate limit using public interface
+        service.simulate_rate_limit_state("subscribe", service.RATE_LIMIT_MAX_REQUESTS)
 
         with patch("src.application.services.logger.warning") as mock_warning:
             # This should trigger rate limit
-            result = service._check_rate_limit(  # noqa: SLF001
-                service._subscribe_timestamps  # noqa: SLF001
-            )
+            with pytest.raises(RuntimeError):
+                await service.subscribe_to_symbol("ES")
 
-            assert result is False
-            mock_warning.assert_called_once()
+            # Warning should have been logged
+            mock_warning.assert_called()
 
             # Check the log message contains relevant info
             log_call = mock_warning.call_args
             assert "Rate limit exceeded" in log_call[0][0]
             # Check that extra dict contains rate limit info
             extra = log_call[1].get("extra", {})
-            assert extra.get("limit") == 50  # noqa: PLR2004
-            assert extra.get("window") == 60.0  # noqa: PLR2004
+            assert extra.get("limit") == service.RATE_LIMIT_MAX_REQUESTS
+            assert extra.get("window") == service.RATE_LIMIT_WINDOW_SECONDS

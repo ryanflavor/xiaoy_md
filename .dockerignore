@@ -1,0 +1,64 @@
+# Development artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+
+# Version control
+.git/
+.github/
+.gitignore
+.secrets.baseline
+.pre-commit-config.yaml
+
+# Test files and directories
+tests/
+test_*.py
+*_test.py
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Local environment files and secrets
+.env
+.env.*
+*.key
+*.pem
+*.crt
+.secrets
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# BMAD core files (development only)
+.bmad-core/
+
+# Other development files
+scripts/check_architecture.py
+.claude/

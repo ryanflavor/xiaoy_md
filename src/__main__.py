@@ -9,6 +9,7 @@ from pythonjsonlogger import jsonlogger
 
 from src.application.services import MarketDataService
 from src.config import settings
+from src.infrastructure.nats_publisher import NATSPublisher
 
 
 def setup_logging() -> None:
@@ -63,7 +64,11 @@ async def run_service() -> None:
 
     try:
         # Initialize service components
-        service = MarketDataService()
+        # Create NATS publisher with security configuration
+        nats_publisher = NATSPublisher(settings)
+
+        # Create service with NATS publisher
+        service = MarketDataService(publisher_port=nats_publisher)
         await service.initialize()
 
         logger.info("Market Data Service started successfully")

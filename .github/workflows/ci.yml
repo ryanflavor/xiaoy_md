@@ -67,3 +67,233 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  docker-build:
+    name: Docker Build Verification
+    runs-on: ubuntu-latest
+    needs: quality  # Only run if quality checks pass
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false  # DO NOT push to registry
+          tags: |
+            market-data-service:${{ github.sha }}
+            market-data-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            HTTP_PROXY=${{ secrets.HTTP_PROXY }}
+            HTTPS_PROXY=${{ secrets.HTTPS_PROXY }}
+
+      - name: Verify Docker image
+        run: |
+          docker images market-data-service:${{ github.sha }}
+          IMAGE_SIZE=$(docker images market-data-service:${{ github.sha }} --format "{{.Size}}")
+          echo "Docker image size: $IMAGE_SIZE"
+
+          # Check image size is under 200MB
+          SIZE_MB=$(docker images market-data-service:${{ github.sha }} --format "{{.Size}}" | sed 's/MB//')
+          if [ "${SIZE_MB%%.*}" -gt 200 ]; then
+            echo "ERROR: Image size exceeds 200MB limit"
+            exit 1
+          fi
+
+      - name: Test container startup
+        run: |
+          # Start container with test environment
+          docker run -d --name test-container \
+            -e NATS_URL=nats://test:4222 \
+            -e NATS_CLUSTER_ID=test-cluster \
+            -e NATS_CLIENT_ID=test-client \
+            market-data-service:${{ github.sha }}
+
+          # Wait for startup
+          sleep 5
+
+          # Check container is running
+          docker ps | grep test-container
+
+          # Check logs for successful startup
+          docker logs test-container 2>&1 | grep "Market Data Service started successfully"
+
+          # Stop container
+          docker stop test-container
+          docker rm test-container
+
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'market-data-service:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'  # Fail build on critical/high vulnerabilities
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()  # Upload even if scan fails
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Verify non-root user
+        run: |
+          # Verify container runs as non-root user
+          USER_ID=$(docker run --rm market-data-service:${{ github.sha }} id -u)
+          if [ "$USER_ID" = "0" ]; then
+            echo "ERROR: Container runs as root user (uid=0)"
+            exit 1
+          fi
+          echo "✓ Container runs as non-root user (uid=$USER_ID)"
+
+  integration-test:
+    name: NATS Integration Tests
+    runs-on: ubuntu-latest
+    needs: docker-build  # Only run after Docker build succeeds
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          uv pip install nats-py
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start services with Docker Compose
+        env:
+          ENVIRONMENT: test
+          NATS_USER: testuser  # pragma: allowlist secret
+          NATS_PASSWORD: testpass  # pragma: allowlist secret
+        run: |
+          # Use simplified docker-compose.yml with test env
+          docker compose up -d
+          echo "Waiting for services to be ready..."
+          sleep 15
+
+      - name: Check service health
+        run: |
+          # Check NATS is running
+          docker compose ps
+          docker compose logs nats | tail -20
+
+          # Check app is running
+          docker compose logs market-data-service | tail -20
+
+      - name: Run integration tests
+        run: |
+          # Run integration tests against the containerized stack
+          uv run pytest tests/integration/test_nats_health_check.py -v --tb=short
+
+      - name: Run security tests
+        run: |
+          # Run basic authentication tests
+          uv run pytest tests/integration/test_nats_auth.py -v --tb=short
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== NATS Logs ==="
+          docker compose -f docker-compose.test.yml logs nats
+          echo "=== Application Logs ==="
+          docker compose -f docker-compose.test.yml logs market-data-service
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker compose down -v
+
+  security-test:
+    name: Security Configuration Tests
+    runs-on: ubuntu-latest
+    needs: docker-build
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          uv pip install nats-py aiohttp
+
+      - name: Start services for auth testing
+        env:
+          ENVIRONMENT: test
+          NATS_USER: testuser  # pragma: allowlist secret
+          NATS_PASSWORD: testpass  # pragma: allowlist secret
+        run: |
+          # Start services with authentication
+          docker compose up -d
+          echo "Waiting for services to be ready..."
+          sleep 15
+
+      - name: Test authentication enforcement
+        run: |
+          # Verify auth is configured in docker-compose
+          grep -q "NATS_USER" docker-compose.yml
+          grep -q "NATS_PASSWORD" docker-compose.yml
+          echo "✓ Authentication configured in docker-compose.yml"
+
+          # Test health check works with auth
+          RESPONSE=$(docker exec market-data-service python -c "
+          import asyncio, nats, json
+          async def test():
+              nc = await nats.connect('nats://testuser:testpass@nats:4222')
+              resp = await nc.request('health.check', b'{}', timeout=2)
+              data = json.loads(resp.data.decode())
+              print(data.get('status', 'unknown'))
+              await nc.close()
+          asyncio.run(test())
+          ")
+
+          if [ "$RESPONSE" = "healthy" ]; then
+              echo "✓ Health check working with authentication"
+          else
+              echo "✗ Health check failed: $RESPONSE"
+              exit 1
+          fi
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker compose down -v

@@ -47,8 +47,10 @@ class TestApplicationRuntime:
                     sys.exit(0)  # Success
                 except (SystemExit, KeyboardInterrupt):
                     raise
-                except Exception:  # noqa: BLE001
-                    sys.exit(1)  # Failure
+                except (ImportError, RuntimeError, AttributeError) as e:
+                    # Catch specific exceptions that indicate startup failure
+                    print(f"Application startup failed: {e}")
+                    sys.exit(1)
 
         # Act
         process = Process(target=run_app)
@@ -333,7 +335,8 @@ class TestAsyncComponents:
             await service.shutdown()
         except (SystemExit, KeyboardInterrupt):
             raise
-        except Exception as e:  # noqa: BLE001
+        except (RuntimeError, AttributeError, TypeError) as e:
+            # Catch specific exceptions that could occur during service init/shutdown
             pytest.fail(f"Service initialization/shutdown failed: {e}")
 
     async def test_service_health_check(self):
