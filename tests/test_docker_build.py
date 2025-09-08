@@ -11,6 +11,9 @@ import subprocess
 
 import pytest
 
+# Treat this module as integration to avoid running during unit-only CI stage
+pytestmark = pytest.mark.integration
+
 # Constants
 IMAGE_SIZE_LIMIT_MB = 200
 MINIMUM_STAGES = 2
