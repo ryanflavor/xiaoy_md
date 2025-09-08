@@ -32,7 +32,7 @@ Focus: Code formatting consistency
 - Line spacing and breaks
 - String quote normalization
 - Bracket and comma placement
-- Python 3.13 preview features
+- Stable configuration (no preview features)
 ```
 
 #### **Ruff** (Quality Powerhouse)
@@ -41,7 +41,6 @@ Focus: Comprehensive code quality (replaces 15+ tools)
 Linting Rules: 200+ checks including:
 - Code style (E, W, F rules)
 - Import organization (I rules - replaces isort)
-- Security scanning (S rules - complements bandit)
 - Modern Python practices (UP rules)
 - Performance optimization (PERF rules)
 - Docstring conventions (D rules)
@@ -71,7 +70,7 @@ Focus: Type correctness
 | **Import Sorting** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Ruff (I) |
 | **Code Quality** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Ruff (200+ rules) |
 | **Type Checking** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Mypy |
-| **Security Scanning** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Bandit + Ruff (S) |
+| **Security Scanning** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Bandit |
 | **Secret Detection** | ✅ Blocks | ✅ Blocks | ✅ Blocks | detect-secrets |
 | **Architecture** | ✅ Blocks | ✅ Blocks | ✅ Blocks | Custom validator |
 | **Test Suite** | N/A | ✅ Blocks | ✅ Blocks | Pytest |
@@ -80,22 +79,21 @@ Focus: Type correctness
 
 ### Ruff Advanced Features
 ```toml
-# Comprehensive rule selection
+# Comprehensive rule selection (security handled by Bandit)
 select = ["E", "W", "F", "I", "N", "D", "B", "C4", "SIM", "UP", "RUF",
-          "S", "BLE", "FBT", "A", "COM", "ICN", "PIE", "T20", "PYI",
-          "PT", "Q", "RSE", "RET", "SLF", "SLOT", "TID", "TCH", "ARG",
+          "BLE", "FBT", "A", "COM", "ICN", "PIE", "T20", "PYI",
+          "PT", "RSE", "RET", "SLF", "SLOT", "TID", "TCH", "ARG",
           "PTH", "ERA", "PGH", "PL", "TRY", "PERF"]
 
-# Smart per-directory rules
-"tests/*" = ["S101", "ARG", "FBT", "PLR2004"]  # Relaxed for testing
-"scripts/*" = ["T201", "S603", "S607"]         # Allow prints/subprocess
+# Per-directory rules (example)
+"scripts/*" = ["T201"]  # Allow print statements for user feedback
 ```
 
 ### Black Integration
 ```toml
 # Coordinated with Ruff
 line-length = 88          # Shared standard
-preview = true            # Python 3.13 features
+preview = false           # Stable formatting (no preview features)
 skip-string-normalization = false  # Consistent quotes
 ```
 
@@ -135,7 +133,7 @@ git commit -m "properly formatted and typed code" ✅ ALLOWED
 
 # Individual tool testing
 uv run black --check src tests scripts    # Formatting
-uv run ruff check src tests scripts       # Quality + imports + security
+uv run ruff check src tests scripts       # Quality + imports
 uv run mypy src scripts tests             # Type safety
 uv run python scripts/check_architecture.py  # Architecture
 uv run pytest tests/ --cov=src            # Test coverage
@@ -150,7 +148,7 @@ pre-commit run black                     # Just formatting
 
 1. **🚀 Performance**: Fewer redundant tools (removed isort)
 2. **🔍 Comprehensive**: 200+ Ruff rules catch more issues
-3. **🛡️ Security**: Dual security scanning (Bandit + Ruff S rules)
+3. **🛡️ Security**: Bandit scanning as single source of truth
 4. **⚡ Auto-fix**: Ruff automatically fixes many issues
 5. **🎯 Zero Conflicts**: Tools work together, not against each other
 6. **📚 Educational**: Quality issues come with explanations and auto-fixes

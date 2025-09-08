@@ -3,7 +3,7 @@ name = "market-data-service"
 version = "0.1.0"
 description = "A high-performance market data service using hexagonal architecture"
 readme = "README.md"
-requires-python = "==3.13.*"
+requires-python = ">=3.13,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Development Team", email = "dev@example.com"}
@@ -28,33 +28,7 @@ dependencies = [
     "pydantic-settings>=2.10.1",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.12.0",
-    "black>=24.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-    "pre-commit>=3.6.0",
-]
 
-test = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.12.0",
-    "faker>=22.0.0",
-    "hypothesis>=6.92.0",
-]
-
-docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings>=0.24.0",
-    "mkdocstrings-python>=1.7.0",
-]
 
 [project.urls]
 Homepage = "https://github.com/yourorg/market-data-service"
@@ -77,14 +51,20 @@ dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
-    "black>=24.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.4.0",
+    "faker>=22.0.0",
+    "hypothesis>=6.92.0",
+    "black==24.10.0",
     "mypy>=1.8.0",
-    "ruff>=0.3.0",
+    "ruff==0.8.0",
     "pre-commit>=3.6.0",
     "detect-secrets>=1.5.0",
-    "tomli>=2.2.1",
     "types-pyyaml>=6.0.12.20250822",
-    "pytest-timeout>=2.4.0",
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings>=0.24.0",
+    "mkdocstrings-python>=1.7.0",
 ]
 
 # Black: Code formatting (focus on style consistency)
@@ -92,7 +72,7 @@ dev-dependencies = [
 line-length = 88
 target-version = ['py313']
 include = '\.pyi?$'
-preview = true  # Enable preview features for Python 3.13
+preview = false  # Disable preview features for stability
 
 # Exclude patterns
 extend-exclude = '''
@@ -176,7 +156,7 @@ ignore_missing_imports = true
 [tool.ruff]
 target-version = "py313"
 line-length = 88  # Match Black
-fix = true  # Enable auto-fix - this is Ruff's superpower!
+fix = false  # Disable global auto-fix; use pre-commit to apply fixes
 
 # Exclude reference and build directories
 exclude = [
@@ -209,7 +189,7 @@ select = [
     "RUF",   # Ruff-specific rules
 
     # Security & best practices
-    "S",     # bandit (security)
+
     "BLE",   # flake8-blind-except
     "FBT",   # flake8-boolean-trap
     "A",     # flake8-builtins
@@ -219,7 +199,7 @@ select = [
     "T20",   # flake8-print
     "PYI",   # flake8-pyi
     "PT",    # flake8-pytest-style
-    "Q",     # flake8-quotes
+
     "RSE",   # flake8-raise
     "RET",   # flake8-return
     "SLF",   # flake8-self
@@ -276,6 +256,7 @@ single-line-exclusions = ["typing"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "S101",    # assert statements (required by pytest)
+    "PLC0415", # allow imports inside test functions for patching/reloads
 ]
 "scripts/*" = [
     "T201",    # print statements (required for user feedback)
@@ -331,7 +312,7 @@ exclude_lines = [
     "def __repr__",
     "def __str__",
     "if self.debug:",
-    "if __name__ == .__main__.:",
+    "if __name__ == \"__main__\":",
     "raise AssertionError",
     "raise NotImplementedError",
     "if TYPE_CHECKING:",

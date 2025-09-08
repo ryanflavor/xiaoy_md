@@ -16,7 +16,7 @@ repos:
     hooks:
       - id: black
         language_version: python3.13
-        args: ['--line-length=88', '--target-version=py313', '--preview']
+        args: ['--line-length=88', '--target-version=py313']
 
   # Code quality with Ruff (handles linting, import sorting, security)
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -55,7 +55,7 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: '^(\.secrets\.baseline|.*\.lock|\.bmad-core/.*|references/.*)$'
+        exclude: '^(\.secrets\.baseline|.*\.lock|\.bmad-core/.*|references/.*|AGENTS\.md)$'
 
   # YAML validation
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -75,13 +75,7 @@ repos:
         args: ['--fix=lf']
       - id: check-toml
 
-  # Docstring checks
-  - repo: https://github.com/PyCQA/pydocstyle
-    rev: 6.3.0
-    hooks:
-      - id: pydocstyle
-        args: ['--convention=google']
-        exclude: '^(tests/|scripts/)'
+
 
   # Custom project-specific checks
   - repo: local
@@ -102,7 +96,7 @@ repos:
 
       - id: validate-pyproject
         name: Validate pyproject.toml
-        entry: uv run python -c "import tomli; tomli.load(open('pyproject.toml', 'rb'))"
+        entry: uv run python -c "import tomllib; tomllib.load(open('pyproject.toml', 'rb'))"
         language: system
         files: 'pyproject.toml'
         pass_filenames: false

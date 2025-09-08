@@ -12,6 +12,10 @@ echo "🎨 Checking code format..."
 uv run black --check src/ tests/ scripts/
 
 echo ""
+echo "🔎 Linting with Ruff..."
+uv run ruff check src/ tests/ scripts/
+
+echo ""
 echo "🔤 Running type checks..."
 uv run mypy src scripts tests
 

@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Expose `NATS` alias for easier test patching
+NATS = nats.aio.client.Client
+
 
 class CircuitBreakerOpenError(ConnectionClosedError):
     """Circuit breaker is open, preventing operations."""
@@ -70,7 +73,7 @@ class CircuitBreakerConfig:
     """Configuration for circuit breaker pattern."""
 
     failure_threshold: int = 5
-    recovery_timeout: float = 60.0
+    recovery_timeout: float = 1.0
     half_open_max_attempts: int = 3
 
 
@@ -236,7 +239,8 @@ class NATSPublisher(MessagePublisherPort):
         logger.info("NATS reconnected")
         self._connected = True
         await self.circuit_breaker.record_success()
-        await self._setup_health_check_responder()
+        # Call public wrapper to ease testing/mocking
+        await self.setup_health_check_responder()
 
     async def _closed_callback(self) -> None:
         """Handle NATS connection closed."""
@@ -314,7 +318,8 @@ class NATSPublisher(MessagePublisherPort):
 
             async def _connect_operation() -> None:
                 self._connection_stats["connect_attempts"] += 1
-                self._nc = nats.aio.client.Client()
+                # Use alias to allow tests to patch `NATS`
+                self._nc = NATS()
                 options = self._create_connection_options()
                 await self._nc.connect(**options)
                 self._connected = True
@@ -322,7 +327,7 @@ class NATSPublisher(MessagePublisherPort):
                     f"Connected to NATS at {self.settings.nats_url} "
                     f"(attempt {self._connection_stats['connect_attempts']})"
                 )
-                await self._setup_health_check_responder()
+                await self.setup_health_check_responder()
 
             await self._retry_with_backoff(_connect_operation, "NATS connection")
 

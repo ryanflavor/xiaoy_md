@@ -214,3 +214,6 @@ checkpoints/
 .ai/
 scratch/
 temp/
+# BMAD (local only)
+.bmad-core/
+.bmad-*/
