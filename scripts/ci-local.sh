@@ -122,7 +122,7 @@ run_integration() {
   echo "Waiting for services..."; sleep 8
 
   echo "\n🧪 Running integration tests"
-  uv run pytest tests/integration/ -v --tb=short --cov-append
+  uv run pytest tests/integration/ -v --tb=short --no-cov
 
   echo "\n🧹 Tearing down stack"
   $C down -v
@@ -143,7 +143,7 @@ run_security() {
   echo "Waiting for services..."; sleep 8
 
   echo "\n🧪 Running security auth tests"
-  uv run pytest tests/integration/test_nats_auth.py -v --tb=short --cov-append
+  uv run pytest tests/integration/test_nats_auth.py -v --tb=short --no-cov
 
   echo "\n🧹 Tearing down stack"
   $C down -v

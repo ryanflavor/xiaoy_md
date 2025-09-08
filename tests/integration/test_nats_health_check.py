@@ -69,10 +69,11 @@ def nats_container():
     # Wait for NATS to be ready by checking logs
     time.sleep(2)
     ready = False
-    for _ in range(20):  # ~10 seconds
+    for _ in range(60):  # ~30 seconds
         logs = subprocess.run(
             ["docker", "logs", container_name],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             check=False,
         ).stdout
@@ -81,8 +82,18 @@ def nats_container():
             break
         time.sleep(0.5)
     if not ready:
+        # Get last logs for diagnostics
+        diag_logs = subprocess.run(
+            ["docker", "logs", container_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        ).stdout
         subprocess.run(["docker", "rm", "-f", container_name], check=False)
-        pytest.fail("NATS container failed to start (no ready logs)")
+        pytest.fail(
+            f"NATS container failed to start (no ready logs). Recent logs:\n{diag_logs[-1000:]}"
+        )
 
     yield {
         "name": container_name,
@@ -160,10 +171,10 @@ async def app_with_nats(nats_container, docker_test_image):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_nats_health_check_response(app_with_nats):
+async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect("nats://localhost:4222")
+    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
 
     try:
         # Send health check request
@@ -201,10 +212,10 @@ async def test_nats_health_check_response(app_with_nats):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_nats_publisher_connection_resilience(app_with_nats):
+async def test_nats_publisher_connection_resilience(app_with_nats, nats_container):
     """Test that publisher handles connection disruptions gracefully."""
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect("nats://localhost:4222")
+    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
 
     try:
         # First health check should succeed
@@ -212,13 +223,17 @@ async def test_nats_publisher_connection_resilience(app_with_nats):
         data1 = json.loads(response1.data.decode())
         assert data1["status"] == "healthy"
 
+        # Give the app a moment to flush logs
+        await asyncio.sleep(1)
         # Get container logs to verify connection
         logs_result = subprocess.run(
             ["docker", "logs", app_with_nats],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             check=False,
+            text=True,
         )
-        logs = logs_result.stdout.decode()
+        logs = logs_result.stdout
 
         # Verify that NATS connection was established
         assert "Connected to NATS" in logs or "NATS Publisher" in logs
@@ -233,10 +248,10 @@ async def test_nats_publisher_connection_resilience(app_with_nats):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_multiple_health_check_requests(app_with_nats):
+async def test_multiple_health_check_requests(app_with_nats, nats_container):
     """Test that application handles multiple concurrent health check requests."""
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect("nats://localhost:4222")
+    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
 
     try:
         # Send multiple concurrent health check requests
@@ -264,10 +279,10 @@ async def test_multiple_health_check_requests(app_with_nats):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_circuit_breaker_state_in_health_check(app_with_nats):
+async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_container):
     """Test that health check includes circuit breaker state."""
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect("nats://localhost:4222")
+    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
 
     try:
         # Request health check
@@ -288,10 +303,10 @@ async def test_circuit_breaker_state_in_health_check(app_with_nats):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-async def test_application_graceful_shutdown(app_with_nats):
+async def test_application_graceful_shutdown(app_with_nats, nats_container):
     """Test that application shuts down gracefully when receiving SIGTERM."""
     # First verify it's running and healthy (no auth for basic test)
-    nc = await nats.connect("nats://localhost:4222")
+    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
 
     try:
         # Verify initial health
@@ -321,10 +336,12 @@ async def test_application_graceful_shutdown(app_with_nats):
         # Check logs for graceful shutdown message
         logs_result = subprocess.run(
             ["docker", "logs", app_with_nats],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             check=False,
+            text=True,
         )
-        logs = logs_result.stdout.decode()
+        logs = logs_result.stdout
 
         # Verify graceful shutdown occurred
         assert (
