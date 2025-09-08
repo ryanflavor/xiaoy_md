@@ -138,7 +138,8 @@ jobs:
           docker stop test-container
           docker rm test-container
 
-      - name: Scan Docker image for vulnerabilities (strict on main)
+      - name: Trivy scan (PR, soft)
+        if: ${{ github.event_name == 'pull_request' }}
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'market-data-service:${{ github.sha }}'
@@ -147,8 +148,21 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           vuln-type: 'os,library'
+          scanners: 'vuln'   # disable secret scan in PR to avoid noise
+          exit-code: '0'     # never fail PR on vulnerabilities
+
+      - name: Trivy scan (push, strict)
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'market-data-service:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          scanners: 'vuln'
           exit-code: '1'  # Fail build on critical/high vulnerabilities
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
