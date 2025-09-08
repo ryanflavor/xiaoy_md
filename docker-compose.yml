@@ -1,0 +1,108 @@
+# Shared configurations using YAML anchors
+x-nats-healthcheck: &nats-healthcheck
+  # NATS minimal container doesn't have nc/curl, using nats-server binary check
+  test: ["CMD", "/nats-server", "--version"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 15s
+
+x-service-healthcheck: &service-healthcheck
+  test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+x-common-env: &common-env
+  NATS_CLUSTER_ID: ${NATS_CLUSTER_ID:-market-data-cluster}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  DEBUG: ${DEBUG:-false}
+  PYTHONUNBUFFERED: 1
+
+services:
+  # NATS Message Broker
+  nats:
+    image: nats:${NATS_VERSION:-latest}
+    container_name: ${NATS_CONTAINER_NAME:-nats}
+    command: ${NATS_COMMAND:--js -DV}  # Default: JetStream with debug
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+      - "${NATS_CLUSTER_PORT:-6222}:6222"
+    volumes:
+      # Always mount config directory
+      - ./config:/etc/nats:ro
+      - nats-data:/data
+    environment:
+      # NATS environment variables
+      - NATS_LOG_LEVEL=${NATS_LOG_LEVEL:-debug}
+    healthcheck: *nats-healthcheck
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+
+  # Market Data Service
+  market-data-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+    image: ${SERVICE_IMAGE:-market-data-service:local}
+    container_name: ${SERVICE_CONTAINER_NAME:-market-data-service}
+    environment:
+      <<: *common-env
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_CLIENT_ID: ${NATS_CLIENT_ID:-market-data-service-1}
+      NATS_USER: ${NATS_USER:-}
+      NATS_PASSWORD: ${NATS_PASSWORD:-}
+    depends_on:
+      - nats
+    healthcheck: *service-healthcheck
+    volumes:
+      # Development: mount source code for hot reload
+      - ${SOURCE_MOUNT:-./logs}:/app/logs
+      # Mount source in dev mode
+      - ${DEV_SOURCE_MOUNT:-./logs}:/app/src:ro
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    # Resource limits (optional, set via env)
+    deploy:
+      resources:
+        limits:
+          cpus: ${SERVICE_CPU_LIMIT:-1}
+          memory: ${SERVICE_MEMORY_LIMIT:-1G}
+        reservations:
+          cpus: ${SERVICE_CPU_RESERVE:-0.5}
+          memory: ${SERVICE_MEMORY_RESERVE:-512M}
+
+  # Monitoring - NATS Prometheus Exporter (optional)
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:${EXPORTER_VERSION:-latest}
+    container_name: nats-exporter
+    command:
+      - -varz
+      - -jsz=all
+      - http://nats:8222
+    ports:
+      - "${METRICS_PORT:-7777}:7777"
+    depends_on:
+      - nats
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles: ["monitoring"]  # Only starts when --profile monitoring is used
+
+volumes:
+  nats-data:
+    name: ${NATS_VOLUME_NAME:-market-data-nats-volume}
+
+networks:
+  market-data-network:
+    driver: bridge
+    name: ${NETWORK_NAME:-market-data-net}

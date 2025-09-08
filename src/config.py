@@ -38,6 +38,15 @@ class AppSettings(BaseSettings):
     nats_client_id: str = Field(
         default="market-data-service", description="NATS client ID"
     )
+    nats_user: str | None = Field(
+        default=None, description="NATS username for authentication"
+    )
+    nats_password: str | None = Field(
+        default=None, description="NATS password for authentication"
+    )
+    nats_health_check_subject: str = Field(
+        default="health.check", description="NATS health check subject"
+    )
 
     # Logging settings
     log_level: str = Field(default="INFO", description="Logging level")
@@ -61,7 +70,13 @@ class AppSettings(BaseSettings):
         """Convert settings to dictionary with sensitive fields masked."""
         data = self.model_dump()
         # Mask sensitive fields
-        sensitive_fields = ["nats_url", "nats_cluster_id", "nats_client_id"]
+        sensitive_fields = [
+            "nats_url",
+            "nats_cluster_id",
+            "nats_client_id",
+            "nats_user",
+            "nats_password",
+        ]
         for field in sensitive_fields:
             if data.get(field):
                 # Keep first and last few chars visible for debugging

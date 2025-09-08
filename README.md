@@ -197,40 +197,107 @@ This project follows **Hexagonal Architecture** (Ports and Adapters) principles:
 
 ## Configuration
 
-The application uses environment variables for configuration. Create a `.env` file:
+The application uses environment variables for configuration. Copy `.env.example` to `.env` and adjust values:
+
+```bash
+cp .env.example .env
+# Edit .env with your settings
+```
+
+### Environment Variables
+
+Key environment variables used:
 
 ```env
 # Application
 APP_NAME=market-data-service
 ENVIRONMENT=development
-DEBUG=true
-
-# Server
-HOST=0.0.0.0
-PORT=8000
+DEBUG=false
 
 # NATS
 NATS_URL=nats://localhost:4222
 NATS_CLUSTER_ID=market-data-cluster
+NATS_CLIENT_ID=market-data-service
+
+# Proxy (for Docker builds)
+HTTP_PROXY=http://192.168.10.102:10808
+HTTPS_PROXY=http://192.168.10.102:10808
 
 # Logging
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 ```
 
+### Using Different Environments
+
+For production deployment:
+```bash
+cp .env.production.example .env.production
+docker-compose --env-file .env.production up -d
+```
+
 ## Docker Development
 
 ### Using Docker Compose
 
+The project includes Docker Compose configurations for both development and testing:
+
 ```bash
-# Start all services
+# Start all services (NATS + Application)
 docker-compose up -d
+
+# Start in foreground to see logs
+docker-compose up
 
 # View logs
 docker-compose logs -f
+docker-compose logs -f nats              # NATS logs only
+docker-compose logs -f market-data-service  # App logs only
+
+# Check service health
+docker-compose ps
 
 # Stop services
 docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
+```
+
+### NATS Health Check
+
+The service implements a NATS health check responder:
+
+```bash
+# Test health check locally (requires nats-cli)
+nats request health.check '{}' --server localhost:4222
+
+# Or using Docker Compose services
+docker-compose exec market-data-service python -c "
+import asyncio
+import nats
+import json
+
+async def check():
+    nc = await nats.connect('nats://nats:4222')
+    response = await nc.request('health.check', b'{}', timeout=5)
+    print(json.dumps(json.loads(response.data), indent=2))
+    await nc.close()
+
+asyncio.run(check())
+"
+```
+
+### Running Integration Tests
+
+```bash
+# Run integration tests with Docker Compose
+docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+docker-compose -f docker-compose.test.yml down -v
+
+# Or run tests locally against Docker services
+docker-compose up -d nats
+uv run pytest tests/integration/ -v
 ```
 
 ### Building the Docker Image
