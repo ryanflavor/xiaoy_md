@@ -5,11 +5,13 @@ import logging
 import signal
 import sys
 
+from nats.errors import ConnectionClosedError, NoServersError
+from nats.errors import TimeoutError as NATSTimeoutError
 from pythonjsonlogger import jsonlogger
 
 from src.application.services import MarketDataService
 from src.config import settings
-from src.infrastructure.nats_publisher import NATSPublisher
+from src.infrastructure.nats_publisher import NATSPublisher, RetryConfig
 
 
 def setup_logging() -> None:
@@ -66,10 +68,30 @@ async def run_service() -> None:
         # Initialize service components
         # Create NATS publisher with security configuration
         nats_publisher = NATSPublisher(settings)
+        # Use fast-fail retry settings outside production to avoid slow startup
+        if settings.environment.lower() != "production":
+            nats_publisher.retry_config = RetryConfig(
+                max_attempts=1,
+                initial_delay=0.1,
+                max_delay=0.2,
+                exponential_base=2.0,
+                jitter=False,
+            )
 
         # Create service with NATS publisher
         service = MarketDataService(publisher_port=nats_publisher)
-        await service.initialize()
+
+        try:
+            await service.initialize()
+        except (NoServersError, NATSTimeoutError, ConnectionClosedError) as init_err:
+            # Non-fatal in non-production: start in degraded mode when broker is unavailable
+            if settings.environment.lower() != "production":
+                logger.warning(
+                    "Startup degraded: NATS unavailable, continuing",
+                    extra={"error": str(init_err)},
+                )
+            else:
+                raise
 
         logger.info("Market Data Service started successfully")
 

@@ -199,6 +199,12 @@ class NATSPublisher(MessagePublisherPort):
             "closed_cb": self._closed_callback,
         }
 
+        # Use faster connection timeouts in non-production to avoid blocking startup/tests
+        if self.settings.environment.lower() != "production":
+            options["connect_timeout"] = 0.5
+            options["reconnect_time_wait"] = 0.1
+            options["max_reconnect_attempts"] = 1
+
         # Add authentication if configured (simple username/password only)
         if self.settings.nats_user and self.settings.nats_password:
             options["user"] = self.settings.nats_user

@@ -1,5 +1,6 @@
 """Application configuration module."""
 
+import os
 from typing import Any
 
 from pydantic import Field
@@ -9,8 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     """Application settings with environment variable support."""
 
+    _use_env_file = "PYTEST_CURRENT_TEST" not in os.environ
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env" if _use_env_file else None),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
