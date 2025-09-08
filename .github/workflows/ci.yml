@@ -172,8 +172,13 @@ jobs:
 
       - name: Verify non-root user
         run: |
-          # Verify container runs as non-root user
-          USER_ID=$(docker run --rm market-data-service:${{ github.sha }} id -u)
+          # Verify container runs as non-root user quickly (override entrypoint)
+          set -euo pipefail
+          USER_ID=$(timeout 10s docker run --rm --entrypoint id market-data-service:${{ github.sha }} -u || true)
+          if [ -z "$USER_ID" ]; then
+            echo "ERROR: Non-root check timed out or returned empty uid"
+            exit 1
+          fi
           if [ "$USER_ID" = "0" ]; then
             echo "ERROR: Container runs as root user (uid=0)"
             exit 1
