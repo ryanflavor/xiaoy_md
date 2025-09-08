@@ -14,6 +14,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class InvalidSymbolError(ValueError):
     """Raised when a trading symbol is invalid."""
 
+    def __init__(self, symbol: str | None = None) -> None:
+        """Initialize invalid symbol error."""
+        if symbol:
+            message = (
+                f"Invalid symbol format: {symbol}. "
+                "Symbol must start with a letter or number and contain only "
+                "letters, numbers, dots, dashes, or underscores (max 30 characters)"
+            )
+        else:
+            message = "Symbol cannot be empty"
+        super().__init__(message)
+
 
 class MarketTick(BaseModel):
     """Immutable domain model representing a market data tick.
@@ -44,7 +56,7 @@ class MarketTick(BaseModel):
         - Crypto: Base-Quote format (e.g., BTC-USD, ETH-USDT)
         """
         if not v or not v.strip():
-            raise InvalidSymbolError("Symbol cannot be empty")
+            raise InvalidSymbolError
 
         # Remove any whitespace but preserve original case for flexibility
         v = v.strip()
@@ -55,11 +67,7 @@ class MarketTick(BaseModel):
         pattern = r"^[A-Za-z0-9][A-Za-z0-9.\-_]{0,29}$"
 
         if not re.match(pattern, v):
-            raise InvalidSymbolError(
-                f"Invalid symbol format: {v}. "
-                "Symbol must start with a letter or number and contain only "
-                "letters, numbers, dots, dashes, or underscores (max 30 characters)"
-            )
+            raise InvalidSymbolError(v)
 
         return v
 
@@ -93,17 +101,13 @@ class MarketDataSubscription(BaseModel):
         Supports vnpy vt_symbol format and various trading symbols.
         """
         if not v or not v.strip():
-            raise InvalidSymbolError("Symbol cannot be empty")
+            raise InvalidSymbolError
 
         v = v.strip()
         pattern = r"^[A-Za-z0-9][A-Za-z0-9.\-_]{0,29}$"
 
         if not re.match(pattern, v):
-            raise InvalidSymbolError(
-                f"Invalid symbol format: {v}. "
-                "Symbol must start with a letter or number and contain only "
-                "letters, numbers, dots, dashes, or underscores (max 30 characters)"
-            )
+            raise InvalidSymbolError(v)
 
         return v
 

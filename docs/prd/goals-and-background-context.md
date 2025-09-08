@@ -4,11 +4,11 @@
 
 ## **Goals  目标**
 
-* Provide a standardized行情 service to reduce development friction for internal projects.  
-  提供标准化的行情服务，减少内部项目的开发摩擦。  
-* Create a stable data foundation to enable rapid innovation for Quant and Application teams.  
-  创建稳定的数据基础，以实现量化和应用团队的快速创新。  
-* Validate the DDD/Hexagonal/NATS architecture pattern for future internal services.  
+* Provide a standardized行情 service to reduce development friction for internal projects.
+  提供标准化的行情服务，减少内部项目的开发摩擦。
+* Create a stable data foundation to enable rapid innovation for Quant and Application teams.
+  创建稳定的数据基础，以实现量化和应用团队的快速创新。
+* Validate the DDD/Hexagonal/NATS architecture pattern for future internal services.
   验证 DDD/Hexagonal/NATS 架构模式以适应未来的内部服务。
 
 ## **Background Context  背景环境**

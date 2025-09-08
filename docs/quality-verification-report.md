@@ -7,7 +7,7 @@
 **Status**: ✅ **PASSING**
 ```bash
 ✅ Layer structure is correct
-✅ No architecture violations found  
+✅ No architecture violations found
 ✅ Import directions are correct
 ```
 **What it checks**:
@@ -22,7 +22,7 @@
 
 ### **2. 🎨 Code Formatting**
 **Tool**: Black 24.10.0
-**Status**: ⚠️ **1 file needs formatting** 
+**Status**: ⚠️ **1 file needs formatting**
 ```bash
 Files that would be reformatted: scripts/onboard.py
 17 files properly formatted
@@ -38,7 +38,7 @@ Files that would be reformatted: scripts/onboard.py
 
 ---
 
-### **3. 🔍 Comprehensive Code Quality** 
+### **3. 🔍 Comprehensive Code Quality**
 **Tool**: Ruff (200+ rules)
 **Status**: ⚠️ **605 issues detected** (mostly in references/)
 ```bash
@@ -50,19 +50,13 @@ Tests: 41 issues (acceptable with relaxed rules)
 
 **Categories checked**:
 ```yaml
-Security (S rules):
-- Pickle usage detection
-- Subprocess security  
-- Input validation
-- SQL injection patterns
-
 Code Style (E,W,F rules):
 - PEP8 compliance
 - Syntax errors
 - Undefined variables
 - Unused imports
 
-Import Organization (I rules):  
+Import Organization (I rules):
 - Import sorting and grouping
 - Duplicate import detection
 - Relative import standards
@@ -88,7 +82,7 @@ Documentation (D rules):
 
 ### **4. 🔤 Type Safety**
 **Tool**: Mypy 1.8.0 (strict mode)
-**Status**: ✅ **PASSING** 
+**Status**: ✅ **PASSING**
 ```bash
 Success: no issues found in 18 source files
 ```
@@ -96,7 +90,7 @@ Success: no issues found in 18 source files
 ```yaml
 Production Code (src/, scripts/):
 - Strict type checking
-- Function return annotations  
+- Function return annotations
 - Variable type annotations
 - Import type correctness
 
@@ -111,7 +105,7 @@ Test Code (tests/):
 ---
 
 ### **5. 🛡️ Security Scanning**
-**Tool**: Bandit 1.7.8  
+**Tool**: Bandit 1.7.8
 **Status**: ✅ **PASSING**
 ```bash
 bandit...................................................................Passed
@@ -132,12 +126,12 @@ bandit...................................................................Passed
 ### **6. 🔐 Secret Detection**
 **Tool**: detect-secrets 1.5.0
 **Status**: ✅ **PASSING**
-```bash  
+```bash
 Detect secrets...........................................................Passed
 ```
 **What it checks**:
 - API keys and tokens
-- Private keys and certificates  
+- Private keys and certificates
 - Database connection strings
 - High-entropy strings (potential secrets)
 - Common secret patterns
@@ -156,7 +150,7 @@ Coverage: 93.75% (exceeds 80% requirement)
 ```
 **What it checks**:
 - Unit test functionality
-- Integration test scenarios  
+- Integration test scenarios
 - Documentation test validation
 - Code coverage requirements (≥80%)
 
@@ -170,7 +164,7 @@ Coverage: 93.75% (exceeds 80% requirement)
 ```bash
 # These WILL be blocked at commit time:
 Architecture violations    → scripts/check_architecture.py fails
-Unformatted code          → Black fails  
+Unformatted code          → Black fails
 Type errors               → Mypy fails
 Security vulnerabilities  → Bandit fails
 Secrets in code           → detect-secrets fails
@@ -209,7 +203,7 @@ Result: Cannot merge to main ❌
 
 # Individual gate testing
 uv run python scripts/check_architecture.py    # Architecture
-uv run black --check .                         # Formatting  
+uv run black --check .                         # Formatting
 uv run ruff check .                            # Quality (200+ rules)
 uv run mypy --config-file=pyproject.toml .     # Type safety
 pre-commit run bandit --all-files             # Security (src/)
@@ -225,12 +219,12 @@ uv run pytest tests/ --cov=src                # Test suite + coverage
 echo "from adapters.db import something" > src/domain/test_violation.py
 git add . && git commit -m "test"  # ❌ BLOCKED
 
-# Test type error  
+# Test type error
 echo "x: int = 'string'" > test_type.py
 git add . && git commit -m "test"  # ❌ BLOCKED
 
 # Test security issue
-echo "password = 'hardcoded123'" > src/test_sec.py  
+echo "password = 'hardcoded123'" > src/test_sec.py  # pragma: allowlist secret
 git add . && git commit -m "test"  # ❌ BLOCKED
 ```
 

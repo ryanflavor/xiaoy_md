@@ -76,12 +76,12 @@ class LinuxOnboardingWizard:
                         distro = "Alpine"
                     else:
                         distro = "Generic Linux"
-
+            except (OSError, FileNotFoundError):
+                return True, f"{system} system detected"
+            else:
                 if arch in ["x86_64", "aarch64"]:
                     return True, f"{distro} {arch} - Perfect for MVP!"
                 return False, f"Unsupported architecture: {arch}"
-            except (OSError, FileNotFoundError):
-                return True, f"{system} system detected"
         elif system == "Darwin":
             return True, f"macOS {arch} - Development supported"
         elif system == "Windows":
@@ -115,7 +115,9 @@ class LinuxOnboardingWizard:
                 ["python3", "--version"], check=False, capture_output=True, text=True
             )
             version = result.stdout.strip()
-
+        except (subprocess.SubprocessError, OSError, FileNotFoundError):
+            return False, "Python not found"
+        else:
             if "3.13" in version:
                 return True, f"{version} ✨"
             # Try python3.13 specifically
@@ -125,8 +127,6 @@ class LinuxOnboardingWizard:
             if result.returncode == 0:
                 return True, f"{result.stdout.strip()} ✨"
             return False, f"Python 3.13 required, found {version}"
-        except (subprocess.SubprocessError, OSError, FileNotFoundError):
-            return False, "Python not found"
 
     def check_uv(self) -> tuple[bool, str]:
         """Check uv installation."""
@@ -145,22 +145,22 @@ class LinuxOnboardingWizard:
         """Install uv package manager."""
         try:
             # Use shell=True for curl pipe installation
-            result = subprocess.run(  # noqa: S602
+            result = subprocess.run(
                 "curl -LsSf https://astral.sh/uv/install.sh | sh",
                 check=False,
                 shell=True,  # needed for uv installation
                 capture_output=True,
                 text=True,
             )
-
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            return False, f"Failed to install uv: {e}"
+        else:
             if result.returncode == 0:
                 # Add to PATH for current session
                 cargo_bin = Path.home() / ".cargo" / "bin"
                 os.environ["PATH"] = f"{cargo_bin}:{os.environ['PATH']}"
                 return True, "uv installed successfully"
             return False, f"Failed to install uv: {result.stderr}"
-        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
-            return False, f"Failed to install uv: {e}"
 
     def setup_project(self) -> tuple[bool, str]:
         """Set up project structure and dependencies."""
@@ -174,12 +174,12 @@ class LinuxOnboardingWizard:
             result = subprocess.run(
                 ["uv", "sync"], check=False, capture_output=True, text=True
             )
-
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            return False, f"Setup failed: {e}"
+        else:
             if result.returncode != 0:
                 return False, f"Dependency installation failed: {result.stderr}"
             return True, "Project setup complete"
-        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
-            return False, f"Setup failed: {e}"
 
     def verify_tools(self) -> tuple[bool, str]:
         """Verify all development tools."""
@@ -209,14 +209,14 @@ class LinuxOnboardingWizard:
                 capture_output=True,
                 text=True,
             )
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            return False, f"Architecture validation failed: {e}"
+        else:
             if result.returncode == 0:
                 return True, "Hexagonal architecture validated"
-            # It's okay if there are no violations on initial setup
             if "✅ Architecture validation PASSED" in result.stdout:
                 return True, "Architecture structure ready"
             return True, "Architecture validation ready (no code yet)"
-        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
-            return False, f"Architecture validation failed: {e}"
 
     def show_quickstart(self) -> tuple[bool, str]:
         """Show quick start commands."""

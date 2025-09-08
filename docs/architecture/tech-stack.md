@@ -4,7 +4,7 @@ This table represents the definitive technology choices for the project. All dev
 
 ## **Cloud Infrastructure**
 
-* **Provider**: Local Area Network (LAN) / On-Premises  
+* **Provider**: Local Area Network (LAN) / On-Premises
 * **Key Services**: Docker, NATS JetStream Cluster, GitHub Container Registry (GHCR)
 
 ## **Technology Stack Table**

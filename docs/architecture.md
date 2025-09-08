@@ -24,9 +24,9 @@ This project's core is a Python asynchronous service built on the **Hexagonal Ar
 
 We will construct a single, independent market data service that acts as a bridge between the vnpy data source and internal asynchronous applications. The primary data flow is as follows:
 
-1. **Data Input**: The vnpy CTP gateway runs in a separate, supervised thread (using ThreadPoolExecutor), receiving raw market data and emitting synchronous events.  
-2. **Event Bridging**: The CTP adapter uses asyncio.run_coroutine_threadsafe() to safely transfer events from the executor thread to the main asynchronous event loop.  
-3. **Data Publication**: The core application logic processes these events and hands them to the NATS adapter for publication on the NATS cluster.  
+1. **Data Input**: The vnpy CTP gateway runs in a separate, supervised thread (using ThreadPoolExecutor), receiving raw market data and emitting synchronous events.
+2. **Event Bridging**: The CTP adapter uses asyncio.run_coroutine_threadsafe() to safely transfer events from the executor thread to the main asynchronous event loop.
+3. **Data Publication**: The core application logic processes these events and hands them to the NATS adapter for publication on the NATS cluster.
 4. **Data Consumption**: Internal applications (strategies, dashboards, etc.) can then subscribe to this market data asynchronously from the NATS cluster.
 
 This design fully encapsulates the complexity and synchronous nature of vnpy within the input adapter, safeguarding the stability and technological consistency of our core application.
@@ -35,39 +35,39 @@ This design fully encapsulates the complexity and synchronous nature of vnpy wit
 
 Code snippet
 
-graph TD  
-    subgraph "External Systems"  
-        A\["vnpy CTP Gateway"\]  
+graph TD
+    subgraph "External Systems"
+        A\["vnpy CTP Gateway"\]
     end
 
-    subgraph "Market Data Service Container (Docker)"  
-        B\["CTP Adapter (Input Port)"\]  
-        C\["Core Application Logic (Domain Layer)"\]  
-        D\["NATS Publisher (Output Port)"\]  
-        B \-- TickData Event \--\> C  
-        C \-- Publish Command \--\> D  
-    end  
-      
-    subgraph "Infrastructure"  
-        E\["NATS JetStream Cluster"\]  
+    subgraph "Market Data Service Container (Docker)"
+        B\["CTP Adapter (Input Port)"\]
+        C\["Core Application Logic (Domain Layer)"\]
+        D\["NATS Publisher (Output Port)"\]
+        B \-- TickData Event \--\> C
+        C \-- Publish Command \--\> D
     end
 
-    subgraph "Internal Consumers"  
-        F\["Strategy App A"\]  
-        G\["Monitoring Dashboard B"\]  
+    subgraph "Infrastructure"
+        E\["NATS JetStream Cluster"\]
     end
 
-    A \-- "Real-time Ticks (TCP)" \--\> B  
-    D \-- "Publish Ticks (NATS Protocol)" \--\> E  
-    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> F  
+    subgraph "Internal Consumers"
+        F\["Strategy App A"\]
+        G\["Monitoring Dashboard B"\]
+    end
+
+    A \-- "Real-time Ticks (TCP)" \--\> B
+    D \-- "Publish Ticks (NATS Protocol)" \--\> E
+    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> F
     E \-- "Subscribe to Ticks (NATS Protocol)" \--\> G
 
 ### **Architectural and Design Patterns**
 
-* **Hexagonal Architecture (Ports and Adapters)**: This is our primary architectural pattern. The core business logic is isolated and interacts with the outside world through well-defined "ports" (interfaces). The CTP integration is an input adapter, and the NATS publication is an output adapter.  
-* **Domain-Driven Design (DDD)**: We will model our logic around the core "market data processing" domain, using Pydantic to define clear domain objects and a ubiquitous language.  
-* **Thread Supervisor Pattern**: The CTP adapter runs the vnpy gateway in a separate thread pool and acts as a supervisor, restarting the thread upon disconnection (required by CTP's reconnection mechanism).  
-* **Publisher-Subscriber Pattern**: This is the fundamental pattern for communication with downstream consumers via NATS, ensuring a high degree of decoupling.  
+* **Hexagonal Architecture (Ports and Adapters)**: This is our primary architectural pattern. The core business logic is isolated and interacts with the outside world through well-defined "ports" (interfaces). The CTP integration is an input adapter, and the NATS publication is an output adapter.
+* **Domain-Driven Design (DDD)**: We will model our logic around the core "market data processing" domain, using Pydantic to define clear domain objects and a ubiquitous language.
+* **Thread Supervisor Pattern**: The CTP adapter runs the vnpy gateway in a separate thread pool and acts as a supervisor, restarting the thread upon disconnection (required by CTP's reconnection mechanism).
+* **Publisher-Subscriber Pattern**: This is the fundamental pattern for communication with downstream consumers via NATS, ensuring a high degree of decoupling.
 * **Configurable Serialization Strategy (Strategy Pattern)**: The service will use a configurable strategy for data serialization (Pickle for flexibility, Pydantic+JSON for standardization), allowing the system to adapt to different consumer needs.
 
 ---
@@ -78,7 +78,7 @@ This table represents the definitive technology choices for the project. All dev
 
 ### **Cloud Infrastructure**
 
-* **Provider**: Local Area Network (LAN) / On-Premises  
+* **Provider**: Local Area Network (LAN) / On-Premises
 * **Key Services**: Docker, NATS JetStream Cluster, GitHub Container Registry (GHCR)
 
 ### **Technology Stack Table**
@@ -110,33 +110,33 @@ The core data model for the MVP will be based on vnpy.trader.object.TickData and
 
 Python
 
-\# file: src/domain/models/tick.py  
-from datetime import datetime  
-from pydantic import BaseModel, Field  
+\# file: src/domain/models/tick.py
+from datetime import datetime
+from pydantic import BaseModel, Field
 from enum import Enum
 
-class Exchange(str, Enum):  
-    CFFEX \= "CFFEX"  
-    SHFE \= "SHFE"  
-    CZCE \= "CZCE"  
-    DCE \= "DCE"  
-    INE \= "INE"  
-    GFEX \= "GFEX"  
-    SSE \= "SSE"  
+class Exchange(str, Enum):
+    CFFEX \= "CFFEX"
+    SHFE \= "SHFE"
+    CZCE \= "CZCE"
+    DCE \= "DCE"
+    INE \= "INE"
+    GFEX \= "GFEX"
+    SSE \= "SSE"
     SZSE \= "SZSE"
 
-class DomainTick(BaseModel):  
-    """  
-    Internal domain model for a tick, decoupled from vnpy's structure.  
-    """  
-    symbol: str \= Field(..., description="Contract symbol")  
-    exchange: Exchange \= Field(..., description="Exchange")  
-    datetime: datetime \= Field(..., description="Timestamp (UTC)")  
-    last\_price: float \= Field(..., description="Last price")  
-    volume: float \= Field(..., description="Volume")  
-    \# ... other essential fields  
-      
-    class Config:  
+class DomainTick(BaseModel):
+    """
+    Internal domain model for a tick, decoupled from vnpy's structure.
+    """
+    symbol: str \= Field(..., description="Contract symbol")
+    exchange: Exchange \= Field(..., description="Exchange")
+    datetime: datetime \= Field(..., description="Timestamp (UTC)")
+    last\_price: float \= Field(..., description="Last price")
+    volume: float \= Field(..., description="Volume")
+    \# ... other essential fields
+
+    class Config:
         use\_enum\_values \= True
 
 *Note: We will maintain a clear maintenance process to keep this model in sync with any future changes to vnpy's TickData object and will standardize all timestamps to UTC during translation.*
@@ -149,46 +149,46 @@ The architecture is divided into the following components, adhering to the Ports
 
 ### **Ports (Interface Definitions)**
 
-* **MarketDataPort**: An input port for managing and consuming market data. It includes methods for lifecycle management (connect(), disconnect(), get\_status()) and provides an asynchronous stream of DomainTick data.  
+* **MarketDataPort**: An input port for managing and consuming market data. It includes methods for lifecycle management (connect(), disconnect(), get\_status()) and provides an asynchronous stream of DomainTick data.
 * **EventPublisherPort**: An output port for publishing events. It includes a publish(tick: DomainTick) method.
 
 ### **Core Components**
 
-1. **CTP Gateway Adapter**  
-   * **Responsibility**: Implements the MarketDataPort. It encapsulates the vnpy CTP gateway, running it in a supervised thread (ThreadPoolExecutor). Its core tasks are managing the gateway's lifecycle, handling thread restarts on disconnection, and **translating** the external vnpy.TickData object into our internal DomainTick object.  
-   * **Dependencies**: vnpy==4.1.0, Python concurrent.futures (ThreadPoolExecutor).  
-2. **Core Application Service**  
-   * **Responsibility**: The application's core. It orchestrates the adapters via the ports, receives the DomainTick stream, and performs core domain logic (e.g., validating the tick data against business invariants like price \> 0). It has no knowledge of vnpy or NATS.  
-   * **Dependencies**: Pydantic.  
-3. **NATS Publisher Adapter**  
-   * **Responsibility**: Implements the EventPublisherPort. It receives DomainTick objects from the core service, serializes them using the configurable strategy, and publishes them to the NATS JetStream cluster.  
+1. **CTP Gateway Adapter**
+   * **Responsibility**: Implements the MarketDataPort. It encapsulates the vnpy CTP gateway, running it in a supervised thread (ThreadPoolExecutor). Its core tasks are managing the gateway's lifecycle, handling thread restarts on disconnection, and **translating** the external vnpy.TickData object into our internal DomainTick object.
+   * **Dependencies**: vnpy==4.1.0, Python concurrent.futures (ThreadPoolExecutor).
+2. **Core Application Service**
+   * **Responsibility**: The application's core. It orchestrates the adapters via the ports, receives the DomainTick stream, and performs core domain logic (e.g., validating the tick data against business invariants like price \> 0). It has no knowledge of vnpy or NATS.
+   * **Dependencies**: Pydantic.
+3. **NATS Publisher Adapter**
+   * **Responsibility**: Implements the EventPublisherPort. It receives DomainTick objects from the core service, serializes them using the configurable strategy, and publishes them to the NATS JetStream cluster.
    * **Dependencies**: nats.py, Pydantic.
 
 ### **Optimized Component Interaction Diagram**
 
 Code snippet
 
-graph TD  
-    subgraph "Infrastructure (External)"  
-        A\["vnpy CTP Gateway"\]  
-        E\["NATS JetStream Cluster"\]  
+graph TD
+    subgraph "Infrastructure (External)"
+        A\["vnpy CTP Gateway"\]
+        E\["NATS JetStream Cluster"\]
     end
 
-    subgraph "Adapters (Infrastructure Layer)"  
-        B\[CTP Gateway Adapter\]  
-        D\[NATS Publisher Adapter\]  
-    end  
-      
-    subgraph "Core App (Domain & App Layers)"  
-        C \--- MarketDataPort \--- B  
-        C \--- EventPublisherPort \--- D  
-        C{Core Application Service}  
+    subgraph "Adapters (Infrastructure Layer)"
+        B\[CTP Gateway Adapter\]
+        D\[NATS Publisher Adapter\]
     end
 
-    A \-- "Raw Ticks" \--\> B  
-    B \-- "Translate to DomainTick" \--\> C  
-    C \-- "Execute Domain Logic (Validate)" \--\> C  
-    C \-- "Publish DomainTick" \--\> D  
+    subgraph "Core App (Domain & App Layers)"
+        C \--- MarketDataPort \--- B
+        C \--- EventPublisherPort \--- D
+        C{Core Application Service}
+    end
+
+    A \-- "Raw Ticks" \--\> B
+    B \-- "Translate to DomainTick" \--\> C
+    C \-- "Execute Domain Logic (Validate)" \--\> C
+    C \-- "Publish DomainTick" \--\> D
     D \-- "Serialize & Publish" \--\> E
 
     style C fill:\#FFE4B5
@@ -209,22 +209,22 @@ The primary workflow involves processing a market tick. The system is designed t
 
 Code snippet
 
-sequenceDiagram  
-    participant CTP\_Gateway as vnpy CTP Gateway\<br\>(Child Process)  
-    participant CTP\_Adapter as CTP Adapter\<br\>(Supervisor)  
-    participant Core\_Service as Core App Service\<br\>(Async Loop)  
-    participant NATS\_Adapter as NATS Publisher  
+sequenceDiagram
+    participant CTP\_Gateway as vnpy CTP Gateway\<br\>(Child Process)
+    participant CTP\_Adapter as CTP Adapter\<br\>(Supervisor)
+    participant Core\_Service as Core App Service\<br\>(Async Loop)
+    participant NATS\_Adapter as NATS Publisher
     participant NATS\_Cluster as NATS JetStream
 
-    CTP\_Gateway-\>\>+CTP\_Adapter: 1\. on\_tick(vnpy\_tick)  
-    CTP\_Adapter-\>\>CTP\_Adapter: 2\. Translate to DomainTick  
-    CTP\_Adapter--\>\>-Core\_Service: 3\. tick\_queue.put(domain\_tick)  
-    Core\_Service-\>\>+Core\_Service: 4\. Validate DomainTick  
-    Core\_Service--\>\>-Core\_Service: Validation OK  
-    Core\_Service-\>\>+NATS\_Adapter: 5\. publisher.publish(domain\_tick)  
-    NATS\_Adapter-\>\>NATS\_Adapter: 6\. Serialize (JSON/Pickle)  
-    NATS\_Adapter-\>\>+NATS\_Cluster: 7\. js.publish(subject, data)  
-    NATS\_Cluster--\>\>-NATS\_Adapter: 8\. Ack  
+    CTP\_Gateway-\>\>+CTP\_Adapter: 1\. on\_tick(vnpy\_tick)
+    CTP\_Adapter-\>\>CTP\_Adapter: 2\. Translate to DomainTick
+    CTP\_Adapter--\>\>-Core\_Service: 3\. tick\_queue.put(domain\_tick)
+    Core\_Service-\>\>+Core\_Service: 4\. Validate DomainTick
+    Core\_Service--\>\>-Core\_Service: Validation OK
+    Core\_Service-\>\>+NATS\_Adapter: 5\. publisher.publish(domain\_tick)
+    NATS\_Adapter-\>\>NATS\_Adapter: 6\. Serialize (JSON/Pickle)
+    NATS\_Adapter-\>\>+NATS\_Cluster: 7\. js.publish(subject, data)
+    NATS\_Cluster--\>\>-NATS\_Adapter: 8\. Ack
     NATS\_Adapter--\>\>-Core\_Service: 9\. Return Success
 
 ---
@@ -247,30 +247,30 @@ The project directory will be structured to clearly reflect the Hexagonal Archit
 
 Plaintext
 
-market-data-service/  
-├── .github/  
-│   └── workflows/  
-│       └── ci.yml  
-├── docs/  
-├── src/  
-│   ├── adapters/  
-│   │   ├── ctp\_adapter.py  
-│   │   ├── nats\_publisher.py  
-│   │   └── serializers.py  
-│   ├── domain/  
-│   │   ├── models.py  
-│   │   └── ports.py  
-│   ├── application/  
-│   │   └── services.py  
-│   ├── config.py  
-│   └── \_\_main\_\_.py  
-├── tests/  
-│   ├── integration/  
-│   └── unit/  
-├── .dockerignore  
-├── docker-compose.yml  
-├── Dockerfile  
-├── pyproject.toml  
+market-data-service/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── docs/
+├── src/
+│   ├── adapters/
+│   │   ├── ctp\_adapter.py
+│   │   ├── nats\_publisher.py
+│   │   └── serializers.py
+│   ├── domain/
+│   │   ├── models.py
+│   │   └── ports.py
+│   ├── application/
+│   │   └── services.py
+│   ├── config.py
+│   └── \_\_main\_\_.py
+├── tests/
+│   ├── integration/
+│   └── unit/
+├── .dockerignore
+├── docker-compose.yml
+├── Dockerfile
+├── pyproject.toml
 └── README.md
 
 ---
@@ -279,14 +279,14 @@ market-data-service/
 
 ### **Infrastructure as Code**
 
-* **Tool**: Docker Compose 2.24.x  
-* **Method**: A single docker-compose.yml file, used with environment-specific .env files, will define the application stack for all environments to prevent configuration drift.  
+* **Tool**: Docker Compose 2.24.x
+* **Method**: A single docker-compose.yml file, used with environment-specific .env files, will define the application stack for all environments to prevent configuration drift.
 * **Data Persistence**: Named volumes **must** be used for Prometheus and Grafana to persist monitoring data.
 
 ### **Deployment Strategy**
 
-* **Strategy**: Script-based Docker Deployment.  
-* **CI/CD Platform**: GitHub Actions.  
+* **Strategy**: Script-based Docker Deployment.
+* **CI/CD Platform**: GitHub Actions.
 * **Image Registry**: **GitHub Container Registry (GHCR)**. CI will build and push images; on-prem servers will pull from GHCR.
 
 ### **Environments & Promotion Flow**
@@ -319,10 +319,10 @@ market-data-service/
 
 ### **Critical Rules**
 
-1. **Strict Hexagonal Dependency**: Domain and application layers **must not** import from the adapters layer.  
-2. **Forced TDD**: All new logic **must** be developed following a Test-Driven Development approach.  
-3. **Pydantic for Data Structures**: All DTOs and domain models **must** be Pydantic models.  
-4. **Immutable Domain Objects**: Core domain models should be treated as immutable.  
+1. **Strict Hexagonal Dependency**: Domain and application layers **must not** import from the adapters layer.
+2. **Forced TDD**: All new logic **must** be developed following a Test-Driven Development approach.
+3. **Pydantic for Data Structures**: All DTOs and domain models **must** be Pydantic models.
+4. **Immutable Domain Objects**: Core domain models should be treated as immutable.
 5. **No print()**: Use the configured JSON logger for all output.
 
 ---
@@ -331,12 +331,12 @@ market-data-service/
 
 ### **Testing Philosophy**
 
-* **Approach**: Test-Driven Development (TDD).  
+* **Approach**: Test-Driven Development (TDD).
 * **Core Principle**: **Test Behavior, Not Implementation**. All tests must be valuable and avoid "vanity" checks.
 
 ### **Good vs. Bad Tests: A Specification for AI Agents**
 
-* **Bad Tests (Avoid)**: Trivial assertions (assert True), testing constants, testing implementation details.  
+* **Bad Tests (Avoid)**: Trivial assertions (assert True), testing constants, testing implementation details.
 * **Good Tests (Enforce)**: Follow AAA pattern; verify a specific business rule or AC (with a comment linking to it); assert a meaningful outcome (return value or state change); verify interactions with mocks.
 
 ---
@@ -345,14 +345,13 @@ market-data-service/
 
 A minimal set of security best practices will be enforced for this internal prototype.
 
-* **Input Validation**: Handled by Pydantic models.  
-  **输入验证** ：由 Pydantic 模型处理。  
-* **Secrets Management**: CTP credentials **must** be loaded from environment variables via Pydantic BaseSettings.  
-  **机密管理** ： **必须**通过 Pydantic BaseSettings 从环境变量加载 CTP 凭证。  
-* **Dependency Security**: CI pipeline will include a job to scan for known vulnerabilities.  
-  **依赖安全** ：CI 管道将包括扫描已知漏洞的作业。  
-* **Authentication/Authorization**: Not in scope for the MVP.  
+* **Input Validation**: Handled by Pydantic models.
+  **输入验证** ：由 Pydantic 模型处理。
+* **Secrets Management**: CTP credentials **must** be loaded from environment variables via Pydantic BaseSettings.
+  **机密管理** ： **必须**通过 Pydantic BaseSettings 从环境变量加载 CTP 凭证。
+* **Dependency Security**: CI pipeline will include a job to scan for known vulnerabilities.
+  **依赖安全** ：CI 管道将包括扫描已知漏洞的作业。
+* **Authentication/Authorization**: Not in scope for the MVP.
   **身份验证/授权** ：不在 MVP 范围内。
 
 ---
-

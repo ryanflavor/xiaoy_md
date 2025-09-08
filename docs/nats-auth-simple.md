@@ -10,7 +10,7 @@
 ```
 authorization {
   user: testuser
-  password: testpass
+  password: testpass  # pragma: allowlist secret
   timeout: 1
 }
 
@@ -23,7 +23,7 @@ jetstream: enabled
 ```bash
 # NATS认证凭证
 NATS_USER=testuser
-NATS_PASSWORD=testpass
+NATS_PASSWORD=testpass  # pragma: allowlist secret
 
 # NATS配置
 NATS_URL=nats://nats:4222
@@ -38,14 +38,14 @@ import nats
 
 # 正确连接方式
 nc = await nats.connect(
-    "nats://testuser:testpass@localhost:4222"
+    "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
 )
 
 # 或者分开指定
 nc = await nats.connect(
     "nats://localhost:4222",
     user="testuser",
-    password="testpass"
+    password="testpass"  # pragma: allowlist secret
 )
 ```
 
@@ -66,7 +66,7 @@ docker-compose ps
 docker exec -it market-data-service python -c "
 import asyncio, nats
 async def test():
-    nc = await nats.connect('nats://testuser:testpass@nats:4222')
+    nc = await nats.connect('nats://testuser:testpass@nats:4222')  # pragma: allowlist secret
     print('✅ 认证成功!')
     await nc.close()
 asyncio.run(test())

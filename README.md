@@ -15,7 +15,7 @@ A high-performance market data service built with Python 3.13 using hexagonal ar
 
 ## Prerequisites
 
-- **Python 3.13**: Required (exact version)
+- **Python 3.13**: Required (3.13.x)
 - **uv**: Package manager (will be installed if not present)
 - **Git**: Version control
 - **Docker** (optional): For containerized development
@@ -128,6 +128,7 @@ To run the same checks that CI performs before pushing code:
 # Run all CI checks in sequence
 uv sync --frozen                              # Install exact dependencies
 uv run black --check src/ tests/ scripts/     # Check code formatting
+uv run ruff check src/ tests/ scripts/        # Linting + import sorting
 uv run mypy src scripts tests                 # Type checking with relaxed rules for tests
 uv run python scripts/check_architecture.py   # Architecture validation
 uv run pytest tests/ -v --cov=src             # Run test suite with coverage
@@ -139,6 +140,8 @@ echo "Installing dependencies..."
 uv sync --frozen
 echo "Checking code format..."
 uv run black --check src/ tests/ scripts/
+echo "Linting with Ruff..."
+uv run ruff check src/ tests/ scripts/
 echo "Running type checks..."
 uv run mypy src/ tests/ scripts/
 echo "Validating architecture..."

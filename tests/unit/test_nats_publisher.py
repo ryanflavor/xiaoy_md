@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
-from nats.errors import ConnectionClosedError, TimeoutError
+from nats.errors import ConnectionClosedError
+from nats.errors import TimeoutError as NATSTimeoutError
 import pytest
 
 from src.config import AppSettings
@@ -15,6 +17,13 @@ from src.infrastructure.nats_publisher import (
     NATSPublisher,
     RetryConfig,
 )
+
+# Test constants to avoid magic numbers
+EXPECTED_CONNECT_ATTEMPTS = 2
+EXPECTED_PUBLISH_ATTEMPTS = 2
+EXPECTED_FAILED_PUBLISHES = 2
+EXPECTED_SUCCESSFUL_PUBLISHES = 10
+HALF_OPEN_MAX_ATTEMPTS = 2
 
 
 @pytest.fixture
@@ -91,9 +100,14 @@ class TestCircuitBreaker:
         # Wait for recovery timeout
         await asyncio.sleep(0.15)
 
-        # Should transition to HALF_OPEN
-        assert await breaker.can_execute() is True
-        assert breaker.state == CircuitState.HALF_OPEN
+        # Check state is still OPEN before calling can_execute
+        assert breaker.state == CircuitState.OPEN
+
+        # can_execute() should return True and transition state
+        can_execute_result = await breaker.can_execute()
+        assert can_execute_result is True
+        # State should now be HALF_OPEN (transition happens in can_execute)
+        assert breaker.state == CircuitState.HALF_OPEN  # type: ignore[comparison-overlap]
 
     @pytest.mark.asyncio
     async def test_circuit_closes_on_half_open_success(self):
@@ -110,15 +124,27 @@ class TestCircuitBreaker:
         """Test circuit reopens after failures in HALF_OPEN state."""
         config = CircuitBreakerConfig(half_open_max_attempts=2)
         breaker = CircuitBreaker(config)
-        breaker.state = CircuitState.HALF_OPEN
 
-        # First failure
-        await breaker.record_failure()
+        # Start from OPEN state, transition to HALF_OPEN
+        breaker.state = CircuitState.OPEN
+        breaker.last_failure_time = time.monotonic() - 1  # Past recovery timeout
+
+        # This should transition to HALF_OPEN
+        await breaker.can_execute()
         assert breaker.state == CircuitState.HALF_OPEN
 
-        # Second failure - should reopen
+        # Reset half_open_attempts for the test
+        breaker.half_open_attempts = 0
+
+        # First failure in HALF_OPEN - should stay HALF_OPEN
         await breaker.record_failure()
-        assert breaker.state == CircuitState.OPEN
+        assert breaker.state == CircuitState.HALF_OPEN
+        assert breaker.half_open_attempts == 1
+
+        # Second failure - should reopen to OPEN
+        await breaker.record_failure()
+        assert breaker.state == CircuitState.OPEN  # type: ignore[comparison-overlap]
+        assert breaker.half_open_attempts == HALF_OPEN_MAX_ATTEMPTS
 
 
 class TestNATSPublisher:
@@ -133,15 +159,15 @@ class TestNATSPublisher:
 
             await publisher.connect()
 
-            assert publisher._connected is True
+            assert publisher.connected is True
             mock_nc.connect.assert_called_once()
-            assert publisher._connection_stats["connect_attempts"] == 1
+            assert publisher.connection_stats["connect_attempts"] == 1
 
     @pytest.mark.asyncio
     async def test_connect_already_connected(self, publisher):
         """Test connect when already connected."""
-        publisher._connected = True
-        publisher._nc = Mock()
+        publisher.connected = True
+        publisher.nc_client = Mock()
 
         with patch("src.infrastructure.nats_publisher.NATS") as mock_nats_class:
             await publisher.connect()
@@ -162,9 +188,12 @@ class TestNATSPublisher:
 
             await publisher.connect()
 
-            assert publisher._connected is True
-            assert mock_nc.connect.call_count == 2
-            assert publisher._connection_stats["connect_attempts"] == 2
+            assert publisher.connected is True
+            assert mock_nc.connect.call_count == EXPECTED_CONNECT_ATTEMPTS
+            assert (
+                publisher.connection_stats["connect_attempts"]
+                == EXPECTED_CONNECT_ATTEMPTS
+            )
 
     @pytest.mark.asyncio
     async def test_connect_max_retries_exceeded(self, publisher):
@@ -177,24 +206,24 @@ class TestNATSPublisher:
             with pytest.raises(ConnectionClosedError):
                 await publisher.connect()
 
-            assert publisher._connected is False
+            assert publisher.connected is False
             assert mock_nc.connect.call_count == publisher.retry_config.max_attempts
 
     @pytest.mark.asyncio
     async def test_disconnect(self, publisher):
         """Test graceful disconnection."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
         # Set up health check subscription mock
         mock_subscription = AsyncMock()
-        publisher._health_check_subscription = mock_subscription
+        publisher.health_check_subscription = mock_subscription
 
         await publisher.disconnect()
 
-        assert publisher._connected is False
-        assert publisher._nc is None
+        assert publisher.connected is False
+        assert publisher.nc_client is None
         mock_subscription.unsubscribe.assert_called_once()
         mock_nc.drain.assert_called_once()
         mock_nc.close.assert_called_once()
@@ -208,15 +237,15 @@ class TestNATSPublisher:
     async def test_publish_success(self, publisher):
         """Test successful message publishing."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
         data = {"test": "data"}
         await publisher.publish("test.topic", data)
 
         expected_message = json.dumps(data).encode()
         mock_nc.publish.assert_called_once_with("test.topic", expected_message)
-        assert publisher._connection_stats["successful_publishes"] == 1
+        assert publisher.connection_stats["successful_publishes"] == 1
 
     @pytest.mark.asyncio
     async def test_publish_not_connected(self, publisher):
@@ -228,8 +257,8 @@ class TestNATSPublisher:
     async def test_publish_with_retry(self, publisher):
         """Test publish with retry on failure."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
         # First attempt fails, second succeeds
         mock_nc.publish.side_effect = [TimeoutError("Timeout"), None]
@@ -237,28 +266,28 @@ class TestNATSPublisher:
         data = {"test": "data"}
         await publisher.publish("test.topic", data)
 
-        assert mock_nc.publish.call_count == 2
-        assert publisher._connection_stats["successful_publishes"] == 1
+        assert mock_nc.publish.call_count == EXPECTED_PUBLISH_ATTEMPTS
+        assert publisher.connection_stats["successful_publishes"] == 1
 
     @pytest.mark.asyncio
     async def test_publish_failure_updates_stats(self, publisher):
         """Test publish failure updates statistics."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
         mock_nc.publish.side_effect = TimeoutError("Timeout")
 
         with pytest.raises(TimeoutError):
             await publisher.publish("test.topic", {"test": "data"})
 
-        assert publisher._connection_stats["failed_publishes"] == 1
+        assert publisher.connection_stats["failed_publishes"] == 1
 
     @pytest.mark.asyncio
     async def test_health_check_healthy(self, publisher):
         """Test health check when connection is healthy."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
         result = await publisher.health_check()
 
@@ -275,9 +304,9 @@ class TestNATSPublisher:
     async def test_health_check_timeout(self, publisher):
         """Test health check with timeout."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
-        mock_nc.flush.side_effect = TimeoutError("Timeout")
+        publisher.nc_client = mock_nc
+        publisher.connected = True
+        mock_nc.flush.side_effect = NATSTimeoutError("Timeout")
 
         result = await publisher.health_check()
 
@@ -287,10 +316,10 @@ class TestNATSPublisher:
     async def test_setup_health_check_responder(self, publisher):
         """Test health check responder setup."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
-        await publisher._setup_health_check_responder()
+        await publisher.setup_health_check_responder()
 
         mock_nc.subscribe.assert_called_once()
         call_args = mock_nc.subscribe.call_args
@@ -300,11 +329,11 @@ class TestNATSPublisher:
     async def test_health_check_responder_callback(self, publisher):
         """Test health check responder callback."""
         mock_nc = AsyncMock()
-        publisher._nc = mock_nc
-        publisher._connected = True
+        publisher.nc_client = mock_nc
+        publisher.connected = True
 
         # Set up the responder
-        await publisher._setup_health_check_responder()
+        await publisher.setup_health_check_responder()
 
         # Get the callback function
         call_args = mock_nc.subscribe.call_args
@@ -325,21 +354,21 @@ class TestNATSPublisher:
 
     def test_get_connection_stats(self, publisher):
         """Test getting connection statistics."""
-        publisher._connected = True
-        publisher._connection_stats["successful_publishes"] = 10
-        publisher._connection_stats["failed_publishes"] = 2
+        publisher.connected = True
+        publisher.connection_stats["successful_publishes"] = 10
+        publisher.connection_stats["failed_publishes"] = 2
 
         stats = publisher.get_connection_stats()
 
         assert stats["connected"] is True
-        assert stats["successful_publishes"] == 10
-        assert stats["failed_publishes"] == 2
+        assert stats["successful_publishes"] == EXPECTED_SUCCESSFUL_PUBLISHES
+        assert stats["failed_publishes"] == EXPECTED_FAILED_PUBLISHES
         assert stats["circuit_breaker_state"] == CircuitState.CLOSED.value
 
     @pytest.mark.asyncio
     async def test_create_connection_options_basic(self, publisher):
         """Test basic connection options creation."""
-        options = publisher._create_connection_options()
+        options = publisher.create_connection_options()
 
         assert options["servers"] == [publisher.settings.nats_url]
         assert options["name"] == publisher.settings.nats_client_id
@@ -352,31 +381,31 @@ class TestNATSPublisher:
     async def test_error_callback(self, publisher):
         """Test error callback updates circuit breaker."""
         error = RuntimeError("Test error")
-        await publisher._error_callback(error)
+        await publisher.error_callback(error)
 
         assert publisher.circuit_breaker.failure_count == 1
 
     @pytest.mark.asyncio
     async def test_disconnected_callback(self, publisher):
         """Test disconnected callback updates connection state."""
-        publisher._connected = True
-        await publisher._disconnected_callback()
-        assert publisher._connected is False
+        publisher.connected = True
+        await publisher.disconnected_callback()
+        assert publisher.connected is False
 
     @pytest.mark.asyncio
     async def test_reconnected_callback(self, publisher):
         """Test reconnected callback updates state and sets up health check."""
-        with patch.object(publisher, "_setup_health_check_responder", new=AsyncMock()):
-            await publisher._reconnected_callback()
-            assert publisher._connected is True
-            publisher._setup_health_check_responder.assert_called_once()
+        with patch.object(publisher, "setup_health_check_responder", new=AsyncMock()):
+            await publisher.reconnected_callback()
+            assert publisher.connected is True
+            publisher.setup_health_check_responder.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_closed_callback(self, publisher):
         """Test closed callback updates connection state."""
-        publisher._connected = True
-        await publisher._closed_callback()
-        assert publisher._connected is False
+        publisher.connected = True
+        await publisher.closed_callback()
+        assert publisher.connected is False
 
     @pytest.mark.asyncio
     async def test_circuit_breaker_integration(self, publisher):

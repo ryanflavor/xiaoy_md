@@ -55,8 +55,8 @@ async def test_connection_with_valid_credentials(nats_auth_container):
     """Test that connection succeeds with valid credentials."""
     nc = await nats.connect(
         "nats://localhost:4225",
-        user="testuser",
-        password="testpass",
+        user="testuser",  # pragma: allowlist secret
+        password="testpass",  # pragma: allowlist secret
     )
 
     assert nc.is_connected
@@ -95,8 +95,8 @@ async def test_connection_with_invalid_credentials_fails(nats_auth_container):
     with pytest.raises(NoServersError):
         await nats.connect(
             "nats://localhost:4225",
-            user="wronguser",
-            password="wrongpass",
+            user="wronguser",  # pragma: allowlist secret
+            password="wrongpass",  # pragma: allowlist secret
             error_cb=error_cb,
         )
 
@@ -111,8 +111,8 @@ async def test_connection_with_wrong_password_fails(nats_auth_container):
     with pytest.raises(NoServersError):
         await nats.connect(
             "nats://localhost:4225",
-            user="testuser",
-            password="wrongpass",
+            user="testuser",  # pragma: allowlist secret
+            password="wrongpass",  # pragma: allowlist secret
             error_cb=error_cb,
         )
 
@@ -123,16 +123,16 @@ async def test_multiple_users_can_connect(nats_auth_container):
     # Connect as testuser
     nc1 = await nats.connect(
         "nats://localhost:4225",
-        user="testuser",
-        password="testpass",
+        user="testuser",  # pragma: allowlist secret
+        password="testpass",  # pragma: allowlist secret
     )
     assert nc1.is_connected
 
     # Connect as admin
     nc2 = await nats.connect(
         "nats://localhost:4225",
-        user="admin",
-        password="testpass",
+        user="admin",  # pragma: allowlist secret
+        password="testpass",  # pragma: allowlist secret
     )
     assert nc2.is_connected
 
@@ -157,8 +157,8 @@ async def test_nats_publisher_with_authentication():
 
     # Set auth environment variables
     os.environ["NATS_URL"] = "nats://localhost:4225"
-    os.environ["NATS_USER"] = "testuser"
-    os.environ["NATS_PASSWORD"] = "testpass"
+    os.environ["NATS_USER"] = "testuser"  # pragma: allowlist secret
+    os.environ["NATS_PASSWORD"] = "testpass"  # pragma: allowlist secret
 
     settings = AppSettings()
     publisher = NATSPublisher(settings)

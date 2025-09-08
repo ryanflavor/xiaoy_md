@@ -17,9 +17,17 @@ logger = logging.getLogger(__name__)
 class RateLimitError(RuntimeError):
     """Raised when rate limit is exceeded."""
 
+    def __init__(self) -> None:
+        """Initialize rate limit error."""
+        super().__init__("Rate limit exceeded")
+
 
 class ConfigurationError(RuntimeError):
     """Raised when configuration is invalid."""
+
+    def __init__(self, message: str = "Port not configured") -> None:
+        """Initialize configuration error."""
+        super().__init__(message)
 
 
 class MarketDataService:
@@ -138,10 +146,10 @@ class MarketDataService:
         """
         # Check rate limit
         if not self._check_rate_limit(self._subscribe_timestamps):
-            raise RateLimitError("Rate limit exceeded")
+            raise RateLimitError
 
         if not self.market_data_port:
-            raise ConfigurationError("Port not configured")
+            raise ConfigurationError
 
         subscription = await self.market_data_port.subscribe(symbol)
         self._subscriptions[subscription.subscription_id] = subscription
@@ -164,7 +172,7 @@ class MarketDataService:
         """
         # Check rate limit
         if not self._check_rate_limit(self._unsubscribe_timestamps):
-            raise RateLimitError("Rate limit exceeded")
+            raise RateLimitError
 
         if subscription_id not in self._subscriptions:
             logger.warning(f"Subscription {subscription_id} not found")
