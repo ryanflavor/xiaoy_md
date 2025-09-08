@@ -9,7 +9,7 @@ import time
 import nats
 import pytest
 
-pytestmark = pytest.mark.timeout(60)  # Default 60 second timeout for all tests
+pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 
 
 def _choose_port(preferred: int) -> int:
