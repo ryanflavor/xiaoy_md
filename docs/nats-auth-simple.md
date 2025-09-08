@@ -10,7 +10,7 @@
 ```
 authorization {
   user: testuser
-  password: testpass
+  password: testpass  # pragma: allowlist secret
   timeout: 1
 }
 
@@ -23,7 +23,7 @@ jetstream: enabled
 ```bash
 # NATS认证凭证
 NATS_USER=testuser
-NATS_PASSWORD=testpass
+NATS_PASSWORD=testpass  # pragma: allowlist secret
 
 # NATS配置
 NATS_URL=nats://nats:4222

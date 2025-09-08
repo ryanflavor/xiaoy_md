@@ -42,11 +42,11 @@ def nats_container():
         check=True,
     )
 
-    result.stdout.decode().strip()
+    container_id = result.stdout.decode().strip()
 
     # Wait for NATS to be ready
     max_retries = 30
-    for _i in range(max_retries):
+    for i in range(max_retries):
         result = subprocess.run(
             ["docker", "exec", container_name, "nats", "server", "check", "connection"],
             capture_output=True,
@@ -68,7 +68,7 @@ def nats_container():
 
 
 @pytest.fixture
-async def app_with_nats(_nats_container, docker_test_image):
+async def app_with_nats(nats_container, docker_test_image):
     """Start application connected to NATS."""
     container_name = "test-app-nats"
 
@@ -99,7 +99,7 @@ async def app_with_nats(_nats_container, docker_test_image):
         check=True,
     )
 
-    result.stdout.decode().strip()
+    container_id = result.stdout.decode().strip()
 
     # Wait for application to connect to NATS
     await asyncio.sleep(3)
@@ -131,8 +131,7 @@ async def app_with_nats(_nats_container, docker_test_image):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.usefixtures("app_with_nats")
-async def test_nats_health_check_response():
+async def test_nats_health_check_response(app_with_nats):
     """Test that application responds to NATS health check requests."""
     # Connect to NATS (no auth for basic test)
     nc = await nats.connect("nats://localhost:4222")
@@ -205,8 +204,7 @@ async def test_nats_publisher_connection_resilience(app_with_nats):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.usefixtures("app_with_nats")
-async def test_multiple_health_check_requests():
+async def test_multiple_health_check_requests(app_with_nats):
     """Test that application handles multiple concurrent health check requests."""
     # Connect to NATS (no auth for basic test)
     nc = await nats.connect("nats://localhost:4222")
@@ -237,8 +235,7 @@ async def test_multiple_health_check_requests():
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.usefixtures("app_with_nats")
-async def test_circuit_breaker_state_in_health_check():
+async def test_circuit_breaker_state_in_health_check(app_with_nats):
     """Test that health check includes circuit breaker state."""
     # Connect to NATS (no auth for basic test)
     nc = await nats.connect("nats://localhost:4222")

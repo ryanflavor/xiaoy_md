@@ -52,7 +52,6 @@ dev-dependencies = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
-    "pytest-timeout>=2.4.0",
     "faker>=22.0.0",
     "hypothesis>=6.92.0",
     "black==24.10.0",
@@ -65,6 +64,7 @@ dev-dependencies = [
     "mkdocs-material>=9.5.0",
     "mkdocstrings>=0.24.0",
     "mkdocstrings-python>=1.7.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 # Black: Code formatting (focus on style consistency)
@@ -257,12 +257,23 @@ single-line-exclusions = ["typing"]
 "tests/*" = [
     "S101",    # assert statements (required by pytest)
     "PLC0415", # allow imports inside test functions for patching/reloads
+    "ARG001",  # allow unused test fixture args
+    "B007",    # allow unused loop variables in tests
+    "F841",    # allow assigned-but-unused in tests
+    "PT011",   # broad pytest.raises in tests
+    "B017",    # broad Exception in tests
+    "SIM117",  # nested with in tests
+    "PLR2004", # magic numbers in tests
 ]
 "scripts/*" = [
     "T201",    # print statements (required for user feedback)
 ]
 "scripts/check_architecture.py" = [
     "N802",    # AST visitor methods (visit_Import/visit_ImportFrom required by AST API)
+]
+"src/infrastructure/nats_publisher.py" = [
+    "N814",    # allow aliasing Client as NATS for test patching
+    "BLE001",  # broad exception in retry wrapper (operational guard)
 ]
 
 # Disable ruff-format since we use Black

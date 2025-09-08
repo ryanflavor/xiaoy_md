@@ -13,50 +13,33 @@ import json
 import logging
 import secrets
 import time
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
-import nats
-from nats.errors import (
-    ConnectionClosedError,
-)
+from nats.aio.client import Client as NATS
+from nats.errors import ConnectionClosedError
+from nats.errors import TimeoutError as NATSTimeoutError
 
 from src.config import AppSettings
 from src.domain.ports import MessagePublisherPort
 
 T = TypeVar("T")
 
-if TYPE_CHECKING:
-    from nats.aio.client import Client as NATSClient
-
 logger = logging.getLogger(__name__)
-
-# Expose `NATS` alias for easier test patching
-NATS = nats.aio.client.Client
 
 
 class CircuitBreakerOpenError(ConnectionClosedError):
     """Circuit breaker is open, preventing operations."""
 
-    def __init__(self) -> None:
-        """Initialize circuit breaker error."""
-        super().__init__("Circuit breaker OPEN")
-
 
 class NotConnectedError(ConnectionClosedError):
     """NATS client is not connected."""
 
-    def __init__(self) -> None:
-        """Initialize not connected error."""
-        super().__init__("Not connected")
-
 
 def _raise_circuit_breaker_error() -> None:
-    """Raise circuit breaker error."""
     raise CircuitBreakerOpenError
 
 
 def _raise_not_connected_error() -> None:
-    """Raise not connected error."""
     raise NotConnectedError
 
 
@@ -177,7 +160,7 @@ class NATSPublisher(MessagePublisherPort):
 
         """
         self.settings = settings
-        self._nc: NATSClient | None = None
+        self._nc: NATS | None = None
         self._connected = False
         self._health_check_subscription: Any = (
             None  # nats.aio.subscription.Subscription
@@ -377,7 +360,7 @@ class NATSPublisher(MessagePublisherPort):
                 await self._nc.publish(topic, message)
                 logger.debug(f"Published to {topic}")
 
-            self._connection_stats["successful_publishes"] += 1
+        self._connection_stats["successful_publishes"] += 1
 
         try:
             await self._retry_with_backoff(_publish_operation, f"publish to {topic}")
@@ -399,7 +382,7 @@ class NATSPublisher(MessagePublisherPort):
         try:
             # Ping NATS server
             await self._nc.flush(timeout=5)
-        except (TimeoutError, ConnectionClosedError) as e:
+        except (NATSTimeoutError, ConnectionClosedError) as e:
             logger.warning(f"Health check failed: {e}")
             return False
         except Exception as e:
