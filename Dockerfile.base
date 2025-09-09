@@ -1,0 +1,33 @@
+# Base image with uv and build tools for faster project builds
+FROM python:3.13-slim
+
+# Set proxy for apt and downloads if provided as build arg
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+# Propagate proxy settings for apt and other tools
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+ENV no_proxy=${NO_PROXY}
+
+# Install uv for faster, modern Python package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Install build dependencies for Python packages with C extensions
+# Use proxy-aware apt configuration
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Label for identification
+LABEL org.opencontainers.image.description="Python 3.13 + uv + build tools base image"
+LABEL org.opencontainers.image.source="https://github.com/ryanflavor/xiaoy_md"

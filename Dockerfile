@@ -1,15 +1,11 @@
 # Multi-stage build for optimized Docker image
 # Stage 1: Build stage for dependency installation
-FROM python:3.13-slim AS builder
+FROM ghcr.io/ryanflavor/python-uv-build:3.13 AS builder
 
-# Set working directory
-WORKDIR /app
-
-# Set proxy for pip if provided as build arg
+# Set proxy for uv if provided as build arg (inherited from base)
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
-# Propagate proxy settings (both upper/lowercase) for tooling like apt/curl
 ENV HTTP_PROXY=${HTTP_PROXY}
 ENV HTTPS_PROXY=${HTTPS_PROXY}
 ENV NO_PROXY=${NO_PROXY}
@@ -17,21 +13,12 @@ ENV http_proxy=${HTTP_PROXY}
 ENV https_proxy=${HTTPS_PROXY}
 ENV no_proxy=${NO_PROXY}
 
-# Install build dependencies for vnpy-ctp
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create a virtual environment and install project (runtime deps only)
-RUN python -m venv /app/.venv
-ENV PATH="/app/.venv/bin:${PATH}"
-
-# Copy minimal files required for pip install
-COPY pyproject.toml README.md ./
+# Copy project files for uv installation
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir .
+
+# Install dependencies using uv (faster and better pyproject.toml support)
+RUN uv sync --frozen
 
 # Stage 2: Runtime stage
 FROM python:3.13-slim AS runtime
