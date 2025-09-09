@@ -29,13 +29,16 @@ def docker_test_image():
         ".",
     ]
 
-    # Pass proxy build args when provided
+    # Respect explicit CI env; avoid injecting local proxies on CI runners
+    ci_env = os.environ.get("GITHUB_ACTIONS") == "true"
+
     http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
     https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
 
-    if http_proxy:
+    # Only pass proxy build args when provided and not running on CI
+    if not ci_env and http_proxy:
         build_args.extend(["--build-arg", f"HTTP_PROXY={http_proxy}"])
-    if https_proxy:
+    if not ci_env and https_proxy:
         build_args.extend(["--build-arg", f"HTTPS_PROXY={https_proxy}"])
 
     print(f"\nBuilding Docker image '{tag}' for tests...")
