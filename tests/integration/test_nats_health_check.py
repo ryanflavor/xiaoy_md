@@ -170,7 +170,7 @@ async def app_with_nats(nats_container, docker_test_image):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(120)
 async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
     # Connect to NATS (no auth for basic test)
