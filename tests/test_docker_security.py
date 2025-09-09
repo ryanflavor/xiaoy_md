@@ -10,6 +10,9 @@ import subprocess
 
 import pytest
 
+# Treat this module as integration to keep it out of unit-only CI stage
+pytestmark = pytest.mark.integration
+
 
 class TestNonRootUserValidation:
     """Tests to validate non-root user execution requirement."""

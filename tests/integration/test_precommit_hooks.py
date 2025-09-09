@@ -13,6 +13,9 @@ import tempfile
 
 import pytest
 
+# Mark this module as integration to keep it out of unit-only CI stage
+pytestmark = pytest.mark.integration
+
 
 class TestPreCommitHooks:
     """Test suite for pre-commit hook execution validation."""

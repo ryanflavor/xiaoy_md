@@ -27,7 +27,8 @@ services:
   nats:
     image: nats:${NATS_VERSION:-latest}
     container_name: ${NATS_CONTAINER_NAME:-nats}
-    command: ${NATS_COMMAND:--js -DV}  # Default: JetStream with debug
+    # Always load server configuration (auth, jetstream, limits)
+    command: ${NATS_COMMAND:--c /etc/nats/nats-server.conf}
     ports:
       - "${NATS_CLIENT_PORT:-4222}:4222"
       - "${NATS_MONITOR_PORT:-8222}:8222"
@@ -64,10 +65,8 @@ services:
       - nats
     healthcheck: *service-healthcheck
     volumes:
-      # Development: mount source code for hot reload
+      # Logs directory (safe to mount in all envs)
       - ${SOURCE_MOUNT:-./logs}:/app/logs
-      # Mount source in dev mode
-      - ${DEV_SOURCE_MOUNT:-./logs}:/app/src:ro
     networks:
       - market-data-network
     restart: ${RESTART_POLICY:-unless-stopped}

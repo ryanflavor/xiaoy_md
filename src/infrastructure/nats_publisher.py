@@ -199,6 +199,14 @@ class NATSPublisher(MessagePublisherPort):
             "closed_cb": self._closed_callback,
         }
 
+        # In development, use faster connection timeouts to avoid blocking local runs.
+        # Keep default (more robust) timeouts for test/production to improve stability.
+        env = self.settings.environment.lower()
+        if env == "development":
+            options["connect_timeout"] = 0.5
+            options["reconnect_time_wait"] = 0.1
+            options["max_reconnect_attempts"] = 1
+
         # Add authentication if configured (simple username/password only)
         if self.settings.nats_user and self.settings.nats_password:
             options["user"] = self.settings.nats_user

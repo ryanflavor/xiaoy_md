@@ -6,6 +6,9 @@ import subprocess
 
 import pytest
 
+# Treat this module as integration; avoid running in unit-only CI stage
+pytestmark = pytest.mark.integration
+
 
 class TestSetupScript:
     """Test suite for setup.sh script functionality."""

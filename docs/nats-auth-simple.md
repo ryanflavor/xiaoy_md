@@ -6,7 +6,7 @@
 
 ### 配置文件
 
-**NATS服务器配置** (`config/nats-server.conf`)：
+**NATS服务器配置** (`config/nats-server.conf`，compose 默认加载)：
 ```
 authorization {
   user: testuser
@@ -19,15 +19,16 @@ jetstream: enabled
 
 ### 环境变量
 
-**.env文件**：
+**.env文件（可选覆盖）**：
 ```bash
 # NATS认证凭证
 NATS_USER=testuser
 NATS_PASSWORD=testpass  # pragma: allowlist secret
 
-# NATS配置
+# NATS配置（docker-compose 默认已加载配置文件）
 NATS_URL=nats://nats:4222
-NATS_COMMAND=-c /etc/nats/nats-server.conf
+# NATS_COMMAND 可覆盖（默认 -c /etc/nats/nats-server.conf）
+# NATS_COMMAND=-c /etc/nats/nats-server.conf
 ```
 
 ### 使用方法
