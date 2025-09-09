@@ -6,6 +6,7 @@ with enhanced security, resilience, and monitoring capabilities.
 
 import asyncio
 from collections.abc import Awaitable, Callable
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -328,14 +329,23 @@ class NATSPublisher(MessagePublisherPort):
             return
 
         try:
-            # Unsubscribe from health check
-            if self._health_check_subscription:
-                await self._health_check_subscription.unsubscribe()
+            # Unsubscribe from health check only if we were connected
+            if self._connected and self._health_check_subscription:
+                with contextlib.suppress(Exception):
+                    await self._health_check_subscription.unsubscribe()
                 self._health_check_subscription = None
 
-            # Drain and close connection
-            await self._nc.drain()
-            await self._nc.close()
+            # Prefer fast, bounded shutdown to avoid hanging tests/process exit
+            if self._connected:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(self._nc.drain(), timeout=0.5)
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(self._nc.close(), timeout=0.5)
+            else:
+                # If never connected, ensure client is closed without drain
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(self._nc.close(), timeout=0.5)
+
             self._connected = False
             logger.info("Disconnected from NATS")
         except Exception as e:

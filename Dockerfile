@@ -68,5 +68,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)" || exit 1
 
 # Set entry point to run the application
-# Use explicit module path to avoid ambiguity when executing packages
-ENTRYPOINT ["python", "-m", "src.__main__"]
+# Use module execution for the package entrypoint
+ENTRYPOINT ["python", "-m", "src"]
