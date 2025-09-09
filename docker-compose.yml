@@ -65,10 +65,8 @@ services:
       - nats
     healthcheck: *service-healthcheck
     volumes:
-      # Development: mount source code for hot reload
+      # Logs directory (safe to mount in all envs)
       - ${SOURCE_MOUNT:-./logs}:/app/logs
-      # Mount source in dev mode
-      - ${DEV_SOURCE_MOUNT:-./logs}:/app/src:ro
     networks:
       - market-data-network
     restart: ${RESTART_POLICY:-unless-stopped}
