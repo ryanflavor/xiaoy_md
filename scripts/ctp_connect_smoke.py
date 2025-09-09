@@ -240,7 +240,19 @@ async def run(duration: float) -> int:
         )
         return 2
 
-    adapter = CTPGatewayAdapter(settings, gateway_connect=real_ctp_gateway_connect)
+    # Shared status for monitoring connection failures
+    connection_failed = {"failed": False}
+
+    def failure_aware_connect(
+        setting: dict[str, Any], should_shutdown: Callable[[], bool]
+    ) -> None:
+        try:
+            real_ctp_gateway_connect(setting, should_shutdown)
+        except Exception:
+            connection_failed["failed"] = True
+            raise
+
+    adapter = CTPGatewayAdapter(settings, gateway_connect=failure_aware_connect)
 
     log.info("ctp_smoke_start", extra={"duration_sec": duration})
     try:
@@ -253,6 +265,11 @@ async def run(duration: float) -> int:
     except Exception as exc:
         # Supervisor inside adapter will already emit structured retry logs
         log.exception("ctp_smoke_exception", extra={"reason": str(exc)})
+        return 1
+
+    # Check if connection failed during execution
+    if connection_failed["failed"]:
+        log.error("ctp_smoke_failed_final_check")
         return 1
 
     log.info("ctp_smoke_done")
