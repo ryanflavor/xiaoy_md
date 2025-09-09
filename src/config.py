@@ -54,6 +54,19 @@ class AppSettings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or text)")
 
+    # CTP credentials and endpoints
+    ctp_broker_id: str | None = Field(default=None, description="CTP broker ID")
+    ctp_user_id: str | None = Field(default=None, description="CTP user ID")
+    ctp_password: str | None = Field(default=None, description="CTP password")
+    ctp_md_address: str | None = Field(
+        default=None, description="CTP market data server address (tcp://host:port)"
+    )
+    ctp_td_address: str | None = Field(
+        default=None, description="CTP trading server address (tcp://host:port)"
+    )
+    ctp_app_id: str | None = Field(default=None, description="CTP app ID")
+    ctp_auth_code: str | None = Field(default=None, description="CTP auth code")
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
@@ -78,6 +91,8 @@ class AppSettings(BaseSettings):
             "nats_client_id",
             "nats_user",
             "nats_password",
+            "ctp_password",
+            "ctp_auth_code",
         ]
         for field in sensitive_fields:
             if data.get(field):
