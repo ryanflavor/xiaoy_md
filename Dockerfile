@@ -31,7 +31,6 @@ ENV PATH="/app/.venv/bin:${PATH}"
 # Copy minimal files required for pip install
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-
 RUN pip install --no-cache-dir .
 
 # Stage 2: Runtime stage
