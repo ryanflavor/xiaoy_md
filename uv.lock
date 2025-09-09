@@ -431,6 +431,7 @@ source = { editable = "." }
 dependencies = [
     { name = "asyncio-mqtt" },
     { name = "nats-py" },
+    { name = "pre-commit" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -464,6 +465,7 @@ dev = [
 requires-dist = [
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "nats-py", specifier = ">=2.7.0" },
+    { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
