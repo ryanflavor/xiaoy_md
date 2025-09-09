@@ -17,6 +17,13 @@ ENV http_proxy=${HTTP_PROXY}
 ENV https_proxy=${HTTPS_PROXY}
 ENV no_proxy=${NO_PROXY}
 
+# Install build dependencies for vnpy-ctp
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create a virtual environment and install project (runtime deps only)
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
