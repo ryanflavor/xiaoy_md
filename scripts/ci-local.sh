@@ -82,7 +82,13 @@ run_docker_build() {
   header "🐳 Docker build & basic verifications"
   local image="market-data-service:local"
 
-  docker build -t "$image" .
+  # Forward host proxy envs as build-args if present
+  local build_args=()
+  if [[ -n "${HTTP_PROXY:-}" ]]; then build_args+=(--build-arg HTTP_PROXY="$HTTP_PROXY"); fi
+  if [[ -n "${HTTPS_PROXY:-}" ]]; then build_args+=(--build-arg HTTPS_PROXY="$HTTPS_PROXY"); fi
+  if [[ -n "${NO_PROXY:-}" ]]; then build_args+=(--build-arg NO_PROXY="$NO_PROXY"); fi
+
+  DOCKER_BUILDKIT=1 docker build "${build_args[@]}" -t "$image" .
 
   echo "\n📏 Checking image size (< 200MB target)"
   local size
@@ -90,7 +96,8 @@ run_docker_build() {
   echo "Image size: $size"
 
   echo "\n👤 Verifying non-root user"
-  uid=$(docker run --rm "$image" id -u)
+  # Override ENTRYPOINT to run id inside the container
+  uid=$(docker run --rm --entrypoint /usr/bin/id "$image" -u)
   if [[ "$uid" == "0" ]]; then
     echo "ERROR: Container runs as root (uid=0)" >&2
     exit 1
@@ -99,8 +106,20 @@ run_docker_build() {
 
   # Optional: Trivy scan if available
   if command -v trivy &>/dev/null; then
-    echo "\n🛡️ Trivy scan (CRITICAL,HIGH)"
-    trivy image --severity CRITICAL,HIGH --exit-code 0 "$image" || true
+  echo "\n🛡️ Trivy scan (CRITICAL,HIGH)"
+  if [[ "${TRIVY_SKIP:-0}" == "1" ]]; then
+    echo "⚠️ Skipping Trivy scan (TRIVY_SKIP=1)"
+  elif command -v trivy &>/dev/null; then
+    # If this is the first run (no local DB), avoid noisy fatal logs and skip
+    if [[ -d "${HOME}/.cache/trivy/db" ]]; then
+      trivy image --severity CRITICAL,HIGH --exit-code 0 --skip-db-update "$image" || true
+    else
+      echo "⚠️ Trivy first run detected (no local DB). Skipping scan to avoid DB download." \
+           "Set TRIVY_SKIP=0 and run 'trivy image $image' once to initialize."
+    fi
+  else
+    echo "⚠️ Trivy not installed; skipping image scan"
+  fi
   else
     echo "⚠️ Trivy not installed; skipping image scan"
   fi
@@ -112,20 +131,49 @@ run_integration() {
   header "🔗 Integration tests"
   ensure_uv
   local C; C=$(compose_cmd)
+  # Use an isolated compose project name to avoid interfering with existing services
+  local PROJECT=${CI_LOCAL_COMPOSE_PROJECT:-ci-local-$(date +%s)}
 
   export ENVIRONMENT="${ENVIRONMENT:-test}"
   export NATS_USER="${NATS_USER:-testuser}"
   export NATS_PASSWORD="${NATS_PASSWORD:-testpass}"
 
-  echo "Starting stack via: $C up -d"
-  $C up -d
-  echo "Waiting for services..."; sleep 8
+  # Detect conflicts with existing fixed container names from docker-compose.yml
+  # Defaults mirror docker-compose.yml fallbacks
+  local NATS_NAME=${NATS_CONTAINER_NAME:-nats}
+  local SERVICE_NAME=${SERVICE_CONTAINER_NAME:-market-data-service}
+  local EXPORTER_NAME=${EXPORTER_CONTAINER_NAME:-nats-exporter}
+  local conflict=0
+  if docker ps --format '{{.Names}}' | grep -Eq "^${NATS_NAME}$|^${SERVICE_NAME}$|^${EXPORTER_NAME}$"; then
+    conflict=1
+  fi
+
+  if [[ "${CI_LOCAL_SKIP_STACK:-0}" != "1" && $conflict -eq 0 ]]; then
+    echo "Starting stack via: $C -p $PROJECT up -d"
+    $C -p "$PROJECT" up -d
+    echo "Waiting for services..."; sleep 8
+  else
+    if [[ $conflict -eq 1 ]]; then
+      echo "⚠️ Detected existing containers with names that would conflict (nats/market-data-service/nats-exporter)."
+      echo "   Skipping docker compose stack startup to avoid disrupting running services."
+    else
+      echo "⚠️ Skipping docker compose stack startup (CI_LOCAL_SKIP_STACK=1)"
+    fi
+  fi
 
   echo "\n🧪 Running integration tests"
   uv run pytest tests/integration/ -v --tb=short --no-cov
 
-  echo "\n🧹 Tearing down stack"
-  $C down -v
+  if [[ "${CI_LOCAL_SKIP_STACK:-0}" != "1" && $conflict -eq 0 ]]; then
+    echo "\n🧹 Tearing down stack"
+    if [[ "${CI_LOCAL_KEEP_STACK:-0}" != "1" ]]; then
+      $C -p "$PROJECT" down -v
+    else
+      echo "Keeping stack running (CI_LOCAL_KEEP_STACK=1). Project: $PROJECT"
+    fi
+  else
+    echo "\n⏭️  Stack teardown skipped (conflict or CI_LOCAL_SKIP_STACK=1)"
+  fi
   echo "\n✅ Integration stage completed"
 }
 
@@ -133,20 +181,40 @@ run_security() {
   header "🛡️ Security configuration tests"
   ensure_uv
   local C; C=$(compose_cmd)
+  local PROJECT=${CI_LOCAL_COMPOSE_PROJECT:-ci-local-sec-$(date +%s)}
 
   export ENVIRONMENT="${ENVIRONMENT:-test}"
   export NATS_USER="${NATS_USER:-testuser}"
   export NATS_PASSWORD="${NATS_PASSWORD:-testpass}"
 
-  echo "Starting stack with auth via: $C up -d"
-  $C up -d
-  echo "Waiting for services..."; sleep 8
+  local NATS_NAME=${NATS_CONTAINER_NAME:-nats}
+  local SERVICE_NAME=${SERVICE_CONTAINER_NAME:-market-data-service}
+  local EXPORTER_NAME=${EXPORTER_CONTAINER_NAME:-nats-exporter}
+  local conflict=0
+  if docker ps --format '{{.Names}}' | grep -Eq "^${NATS_NAME}$|^${SERVICE_NAME}$|^${EXPORTER_NAME}$"; then
+    conflict=1
+  fi
+  if [[ "${CI_LOCAL_SKIP_STACK:-0}" != "1" && $conflict -eq 0 ]]; then
+    echo "Starting stack with auth via: $C -p $PROJECT up -d"
+    $C -p "$PROJECT" up -d
+    echo "Waiting for services..."; sleep 8
+  else
+    echo "⚠️ Skipping stack startup for security tests (conflict or CI_LOCAL_SKIP_STACK=1)"
+  fi
 
   echo "\n🧪 Running security auth tests"
   uv run pytest tests/integration/test_nats_auth.py -v --tb=short --no-cov
 
-  echo "\n🧹 Tearing down stack"
-  $C down -v
+  if [[ "${CI_LOCAL_SKIP_STACK:-0}" != "1" && $conflict -eq 0 ]]; then
+    echo "\n🧹 Tearing down stack"
+    if [[ "${CI_LOCAL_KEEP_STACK:-0}" != "1" ]]; then
+      $C -p "$PROJECT" down -v
+    else
+      echo "Keeping stack running (CI_LOCAL_KEEP_STACK=1). Project: $PROJECT"
+    fi
+  else
+    echo "\n⏭️  Stack teardown skipped (conflict or CI_LOCAL_SKIP_STACK=1)"
+  fi
   echo "\n✅ Security stage completed"
 }
 
