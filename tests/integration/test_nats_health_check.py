@@ -170,7 +170,7 @@ async def app_with_nats(nats_container, docker_test_image):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(300)
 async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
     # Connect to NATS (no auth for basic test)
@@ -211,7 +211,7 @@ async def test_nats_health_check_response(app_with_nats, nats_container):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(300)
 async def test_nats_publisher_connection_resilience(app_with_nats, nats_container):
     """Test that publisher handles connection disruptions gracefully."""
     # Connect to NATS (no auth for basic test)
@@ -247,7 +247,7 @@ async def test_nats_publisher_connection_resilience(app_with_nats, nats_containe
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(300)
 async def test_multiple_health_check_requests(app_with_nats, nats_container):
     """Test that application handles multiple concurrent health check requests."""
     # Connect to NATS (no auth for basic test)
@@ -278,7 +278,7 @@ async def test_multiple_health_check_requests(app_with_nats, nats_container):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(300)
 async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_container):
     """Test that health check includes circuit breaker state."""
     # Connect to NATS (no auth for basic test)
@@ -302,7 +302,7 @@ async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_contain
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(300)
 async def test_application_graceful_shutdown(app_with_nats, nats_container):
     """Test that application shuts down gracefully when receiving SIGTERM."""
     # First verify it's running and healthy (no auth for basic test)

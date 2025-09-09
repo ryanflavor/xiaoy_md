@@ -26,6 +26,9 @@ dependencies = [
     "python-json-logger>=2.0.0",
     "python-dotenv>=1.0.0",
     "pydantic-settings>=2.10.1",
+    "vnpy>=4.1.0",
+    "vnpy-ctp>=6.7.7.2",
+    "pre-commit>=4.3.0",
 ]
 
 

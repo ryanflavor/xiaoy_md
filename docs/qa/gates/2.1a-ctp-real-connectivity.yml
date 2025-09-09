@@ -1,0 +1,97 @@
+schema: 1
+story: '2.1a'
+story_title: 'Real CTP Connectivity Smoke Test'
+gate: PASS
+status_reason: 'QA review: login/auth/settlement/contract query succeeded; heartbeats stable; no secret leakage.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-09-09T14:25:00+08:00'
+
+top_issues: []
+
+waiver:
+  active: false
+
+quality_score: 90
+expires: '2025-09-23T00:00:00+08:00'
+
+evidence:
+  tests_reviewed: 3
+  risks_identified: 1
+  trace:
+    ac_covered: [1, 2, 3, 4]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'No secrets in logs; credentials from env vars only.'
+  performance:
+    status: PASS
+    notes: 'Short bounded run (30s) within ≤120s AC; clean shutdown.'
+  reliability:
+    status: PASS
+    notes: 'Live run stable; retry/backoff validated by unit tests; smoke ready to expose failures if they occur.'
+  maintainability:
+    status: PASS
+    notes: 'Local-only runner with clear event monitoring.'
+
+recommendations:
+  immediate:
+    - action: 'Prepare Ubuntu host with vnpy + vnpy_ctp and required system libs'
+      refs: ['local environment']
+    - action: 'Run smoke during trading hours; capture structured logs'
+      refs: ['scripts/ctp_connect_smoke.py']
+  future:
+    - action: 'If unstable, add jitter to backoff and increase observability'
+      refs: ['src/infrastructure/ctp_adapter.py']
+
+test_design:
+  scenarios_total: 3
+  by_level:
+    unit: 0
+    integration: 3
+    e2e: 0
+  by_priority:
+    p0: 2
+    p1: 0
+    p2: 0
+  coverage_gaps: []
+
+risk_summary:
+  totals:
+    critical: 0
+    high: 0
+    medium: 0
+    low: 1
+  recommendations:
+    must_fix: []
+    monitor:
+      - 'Secret handling and structured logs'
+      - 'Thread lifecycle correctness across retries'
+
+trace:
+  totals:
+    requirements: 4
+    full: 4
+    partial: 0
+    none: 0
+  planning_ref: 'docs/stories/2.1a.story.md'
+  uncovered: []
+  notes: 'All requirements validated with evidence'
+
+history:
+  - at: '2025-09-09T00:00:00+08:00'
+    gate: CONCERNS
+    note: 'Story created; awaiting local execution results'
+  - at: '2025-09-09T14:10:00+08:00'
+    gate: PASS
+    note: 'Smoke executed; login success and stable heartbeats'
+
+observations:
+  logs_excerpt:
+    - 'ctp_event: 交易服务器连接成功'
+    - 'ctp_event: 交易服务器授权验证成功'
+    - 'ctp_event: 交易服务器登录成功'
+    - 'ctp_event: 结算信息确认成功'
+    - 'ctp_event: 合约信息查询成功'
+    - 'ctp_smoke_heartbeat'
