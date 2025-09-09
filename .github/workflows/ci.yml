@@ -163,7 +163,7 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           scanners: 'vuln'
-          exit-code: '0'  # Temporarily soft-fail to keep main green
+          exit-code: '0'  # Temporarily do not fail main on vulnerabilities
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3

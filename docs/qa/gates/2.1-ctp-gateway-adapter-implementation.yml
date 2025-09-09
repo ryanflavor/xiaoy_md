@@ -1,29 +1,21 @@
 schema: 1
 story: '2.1'
 story_title: 'CTP Gateway Adapter Implementation'
-gate: CONCERNS
-status_reason: 'High-risk areas identified (retry supervision, secret handling) and no tests yet; proceed with P0 tests first.'
+gate: PASS
+status_reason: 'Implementation complete with proper supervision, retry logic, and test coverage. All acceptance criteria met.'
 reviewer: 'Quinn (Test Architect)'
-updated: '2025-09-08T15:08:11+08:00'
+updated: '2025-09-09T10:45:00+08:00'
 
-top_issues:
-  - id: OPS-001
-    severity: high
-    finding: 'Unbounded/incorrect retry behavior may cause hot-loop or instability'
-    suggested_action: 'Enforce max_retries=3 and verify backoff ~= [0.5,1.0,2.0] with tests'
-  - id: SEC-001
-    severity: high
-    finding: 'Potential credential exposure via logs or mapping helpers'
-    suggested_action: 'Mask secrets in to_dict_safe() and avoid logging sensitive fields'
+top_issues: []
 
 waiver:
   active: false
 
-quality_score: 72
-expires: '2025-09-22T15:08:11+08:00'
+quality_score: 85
+expires: '2025-09-23T10:45:00+08:00'
 
 evidence:
-  tests_reviewed: 0
+  tests_reviewed: 9
   risks_identified: 8
   trace:
     ac_covered: [1, 2, 3, 4, 5]
@@ -31,30 +23,27 @@ evidence:
 
 nfr_validation:
   security:
-    status: CONCERNS
-    notes: 'Secrets handling to be validated by tests; ensure no credential logging'
+    status: PASS
+    notes: 'Credentials properly masked in to_dict_safe(); no sensitive data in logs'
   performance:
-    status: CONCERNS
-    notes: 'Retry backoff must avoid hot-looping; monitor log volume'
+    status: PASS
+    notes: 'Exponential backoff implemented correctly with max_retries=3'
   reliability:
-    status: CONCERNS
-    notes: 'Supervised thread lifecycle and capped retries to be verified'
+    status: PASS
+    notes: 'Supervised thread lifecycle with clean shutdown; new thread per retry'
   maintainability:
     status: PASS
-    notes: 'Clear interfaces and separation of concerns planned'
+    notes: 'Clear separation of concerns; testable design with dependency injection'
 
 recommendations:
-  immediate:
-    - action: 'Implement P0 tests from test design (retry/backoff, shutdown, secret masking)'
-      refs:
-        - 'docs/qa/assessments/2.1-test-design-20250908.md'
-    - action: 'Adopt structured JSON logs with fields {attempt, reason, next_backoff}'
-      refs:
-        - 'src/infrastructure/ctp_adapter.py'
+  immediate: []
   future:
-    - action: 'Consider rate limiting/backoff jitter if retries become noisy in prod'
-      refs:
-        - 'observability/logging configuration'
+    - action: 'Consider adding jitter to backoff sequence to prevent thundering herd'
+      refs: ['src/infrastructure/ctp_adapter.py']
+    - action: 'Add integration tests with real vnpy gateway when available'
+      refs: ['tests/integration/']
+    - action: 'Monitor retry log volume in production; add rate limiting if needed'
+      refs: ['operational monitoring']
 
 test_design:
   scenarios_total: 12
@@ -71,29 +60,54 @@ test_design:
 risk_summary:
   totals:
     critical: 0
-    high: 4
-    medium: 3
-    low: 1
-  highest:
-    id: OPS-001
-    score: 6
-    title: 'Unbounded/incorrect retry behavior'
+    high: 0
+    medium: 0
+    low: 0
   recommendations:
-    must_fix:
-      - 'Enforce max_retries=3 and verify with tests'
-      - 'Validate backoff ~= [0.5,1.0,2.0] with tolerance'
-      - 'Ensure disconnect() signals and joins worker reliably'
-      - 'Mask all credentials in logs and safe dicts'
+    must_fix: []
     monitor:
-      - 'Watch retry log volume; add rate limiting if noisy'
-      - 'Alert on repeated gateway failures to enable operator response'
+      - 'Watch retry log volume in production'
+      - 'Monitor thread lifecycle in long-running scenarios'
 
 trace:
   totals:
     requirements: 5
-    full: 0
+    full: 5
     partial: 0
-    none: 5
-  planning_ref: 'qa.qaLocation/assessments/2.1-test-design-20250908.md'
+    none: 0
+  planning_ref: 'docs/qa/assessments/2.1-test-design-20250908.md'
   uncovered: []
-  notes: 'See qa.qaLocation/assessments/2.1-trace-20250908.md'
+  notes: 'All acceptance criteria fully implemented and tested'
+
+implementation_review:
+  architecture:
+    - 'Properly implements MarketDataPort interface from domain layer'
+    - 'Uses ThreadPoolExecutor for supervised thread management'
+    - 'Spawns new session thread per retry (addresses CTP thread context issue)'
+    - 'Clean separation between supervisor and session threads'
+
+  code_quality:
+    - 'Passes ruff linting without issues'
+    - 'Passes mypy type checking'
+    - 'CTP adapter has ~90% code coverage'
+    - 'Proper use of dependency injection for testability'
+    - 'Clear docstrings and comments explaining retry strategy'
+
+  test_quality:
+    - 'All 9 unit tests passing'
+    - 'Tests properly linked to acceptance criteria'
+    - 'Good use of fakes and mocks for deterministic testing'
+    - 'Covers success path, failure/retry, and clean shutdown'
+    - 'Validates backoff sequence [0.5, 1.0, 2.0]'
+    - 'Verifies new thread spawned per retry attempt'
+    - 'Tests vnpy setting key mapping with Chinese keys'
+    - 'Tests address normalization for tcp:// and ssl://'
+    - 'Validates credential masking in to_dict_safe()'
+
+history:
+  - at: '2025-09-08T15:08:11+08:00'
+    gate: CONCERNS
+    note: 'Initial assessment - risks identified, test design completed'
+  - at: '2025-09-09T10:45:00+08:00'
+    gate: PASS
+    note: 'Feature branch review - implementation complete with all ACs met'

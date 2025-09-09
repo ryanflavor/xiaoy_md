@@ -8,19 +8,24 @@ WORKDIR /app
 # Set proxy for pip if provided as build arg
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
+ARG NO_PROXY
+# Propagate proxy settings (both upper/lowercase) for tooling like apt/curl
 ENV HTTP_PROXY=${HTTP_PROXY}
 ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+ENV no_proxy=${NO_PROXY}
 
-# Install uv package manager (pinned version for reproducibility)
-RUN pip install --no-cache-dir uv==0.5.13
+# Create a virtual environment and install project (runtime deps only)
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
 
-# Copy dependency files for installation
-COPY pyproject.toml uv.lock ./
-# Copy README.md needed by hatchling build
-COPY README.md ./
+# Copy minimal files required for pip install
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
-# Install dependencies using uv
-RUN uv sync --frozen --no-dev
+RUN pip install --no-cache-dir .
 
 # Stage 2: Runtime stage
 FROM python:3.13-slim AS runtime
@@ -41,7 +46,17 @@ COPY --chown=appuser:appuser scripts/ ./scripts/
 
 # Set Python path to include virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONPATH="/app"
+# Keep proxy envs in runtime if provided (optional)
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+ENV no_proxy=${NO_PROXY}
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
@@ -53,5 +68,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)" || exit 1
 
 # Set entry point to run the application
-# Use explicit module path to avoid ambiguity when executing packages
-ENTRYPOINT ["python", "-m", "src.__main__"]
+# Use module execution for the package entrypoint
+ENTRYPOINT ["python", "-m", "src"]

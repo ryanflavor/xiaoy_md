@@ -11,6 +11,7 @@ The architecture is divided into the following components, adhering to the Ports
 
 1. **CTP Gateway Adapter**
    * **Responsibility**: Implements the MarketDataPort. It encapsulates the vnpy CTP gateway, running it in a supervised thread (ThreadPoolExecutor). Its core tasks are managing the gateway's lifecycle, handling thread restarts on disconnection, and **translating** the external vnpy.TickData object into our internal DomainTick object.
+   * **CTP Retry Constraint**: On failure or disconnect, the adapter must start a fresh session thread for each retry (threads are not reusable for CTP sessions). The supervisor coordinates retries and backoff; the executor may be reused.
    * **Dependencies**: vnpy==4.1.0, Python concurrent.futures (ThreadPoolExecutor).
 2. **Core Application Service**
    * **Responsibility**: The application's core. It orchestrates the adapters via the ports, receives the DomainTick stream, and performs core domain logic (e.g., validating the tick data against business invariants like price \> 0). It has no knowledge of vnpy or NATS.

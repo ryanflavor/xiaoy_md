@@ -47,6 +47,7 @@ services:
 
   # Market Data Service
   market-data-service:
+    container_name: ${SERVICE_CONTAINER_NAME:-market-data-service}
     build:
       context: .
       dockerfile: Dockerfile
@@ -54,7 +55,7 @@ services:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
     image: ${SERVICE_IMAGE:-market-data-service:local}
-    container_name: ${SERVICE_CONTAINER_NAME:-market-data-service}
+
     environment:
       <<: *common-env
       NATS_URL: ${NATS_URL:-nats://nats:4222}
@@ -83,7 +84,7 @@ services:
   # Monitoring - NATS Prometheus Exporter (optional)
   nats-exporter:
     image: natsio/prometheus-nats-exporter:${EXPORTER_VERSION:-latest}
-    container_name: nats-exporter
+
     command:
       - -varz
       - -jsz=all
@@ -99,9 +100,7 @@ services:
 
 volumes:
   nats-data:
-    name: ${NATS_VOLUME_NAME:-market-data-nats-volume}
 
 networks:
   market-data-network:
     driver: bridge
-    name: ${NETWORK_NAME:-market-data-net}
