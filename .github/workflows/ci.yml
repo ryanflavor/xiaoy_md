@@ -236,14 +236,14 @@ jobs:
           # Check app is running
           docker compose logs market-data-service | tail -20
 
-      - name: Run integration tests
+      - name: Run integration tests (no coverage)
         run: |
           # Run integration tests against the containerized stack
-          uv run pytest tests/integration/test_nats_health_check.py -v --tb=short
-      - name: Run security tests
+          uv run pytest tests/integration/test_nats_health_check.py -v --tb=short -o addopts=""
+      - name: Run security tests (no coverage)
         run: |
           # Run basic authentication tests
-          uv run pytest tests/integration/test_nats_auth.py -v --tb=short
+          uv run pytest tests/integration/test_nats_auth.py -v --tb=short -o addopts=""
 
       - name: Collect logs on failure
         if: failure()
