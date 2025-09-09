@@ -46,7 +46,7 @@ def docker_test_image():
         build_args,
         capture_output=True,
         cwd=Path(__file__).parent.parent,
-        timeout=300,
+        timeout=600,
         check=False,
     )
 
