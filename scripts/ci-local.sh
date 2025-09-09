@@ -106,20 +106,20 @@ run_docker_build() {
 
   # Optional: Trivy scan if available
   if command -v trivy &>/dev/null; then
-  echo "\n🛡️ Trivy scan (CRITICAL,HIGH)"
-  if [[ "${TRIVY_SKIP:-0}" == "1" ]]; then
-    echo "⚠️ Skipping Trivy scan (TRIVY_SKIP=1)"
-  elif command -v trivy &>/dev/null; then
-    # If this is the first run (no local DB), avoid noisy fatal logs and skip
-    if [[ -d "${HOME}/.cache/trivy/db" ]]; then
-      trivy image --severity CRITICAL,HIGH --exit-code 0 --skip-db-update "$image" || true
+    echo "\n🛡️ Trivy scan (CRITICAL,HIGH)"
+    if [[ "${TRIVY_SKIP:-0}" == "1" ]]; then
+      echo "⚠️ Skipping Trivy scan (TRIVY_SKIP=1)"
+    elif command -v trivy &>/dev/null; then
+      # If this is the first run (no local DB), avoid noisy fatal logs and skip
+      if [[ -d "${HOME}/.cache/trivy/db" ]]; then
+        trivy image --severity CRITICAL,HIGH --exit-code 0 --skip-db-update "$image" || true
+      else
+        echo "⚠️ Trivy first run detected (no local DB). Skipping scan to avoid DB download." \
+             "Set TRIVY_SKIP=0 and run 'trivy image $image' once to initialize."
+      fi
     else
-      echo "⚠️ Trivy first run detected (no local DB). Skipping scan to avoid DB download." \
-           "Set TRIVY_SKIP=0 and run 'trivy image $image' once to initialize."
+      echo "⚠️ Trivy not installed; skipping image scan"
     fi
-  else
-    echo "⚠️ Trivy not installed; skipping image scan"
-  fi
   else
     echo "⚠️ Trivy not installed; skipping image scan"
   fi

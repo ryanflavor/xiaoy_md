@@ -26,6 +26,7 @@ services:
   # NATS Message Broker
   nats:
     image: nats:${NATS_VERSION:-latest}
+    container_name: ${NATS_CONTAINER_NAME:-nats}
     # Always load server configuration (auth, jetstream, limits)
     command: ${NATS_COMMAND:--c /etc/nats/nats-server.conf}
     ports:
