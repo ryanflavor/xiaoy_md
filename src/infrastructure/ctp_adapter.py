@@ -8,12 +8,16 @@ fresh session thread is spawned on each retry after failure/disconnect.
 
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from decimal import Decimal
 import logging
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from src.domain.ports import MarketDataPort
 
@@ -24,6 +28,20 @@ if TYPE_CHECKING:  # avoid runtime import for typing only
     from src.domain.models import MarketDataSubscription, MarketTick
 
 logger = logging.getLogger(__name__)
+
+# Constants for vnpy compatibility
+MAX_FLOAT = sys.float_info.max
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+# Exchange mapping from CTP to vnpy Exchange enum strings
+EXCHANGE_CTP2VT = {
+    "CFFEX": "CFFEX",
+    "SHFE": "SHFE",
+    "CZCE": "CZCE",
+    "DCE": "DCE",
+    "INE": "INE",
+    "GFEX": "GFEX",
+}
 
 
 @dataclass(frozen=True)
@@ -68,8 +86,18 @@ class CTPGatewayAdapter(MarketDataPort):
         self._gateway_connect = gateway_connect or self._default_gateway_connect
         self._session_counter = 0
 
+        # Story 2.2: Async bridge components
+        self._tick_queue: asyncio.Queue[MarketTick] = asyncio.Queue(maxsize=1000)
+        self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._dropped_ticks = 0
+        self.symbol_contract_map: dict[str, Any] = (
+            {}
+        )  # Will be populated by vnpy gateway
+
     async def connect(self) -> None:
         """Start the supervised worker thread."""
+        # Store main loop reference for thread-safe bridging
+        self._main_loop = asyncio.get_running_loop()
         self._shutdown.clear()
         if self._future is None or getattr(self._future, "done", lambda: True)():
             self._future = self.executor.submit(self._supervisor)
@@ -77,6 +105,12 @@ class CTPGatewayAdapter(MarketDataPort):
     async def disconnect(self) -> None:
         """Signal shutdown and wait for the worker to exit."""
         self._shutdown.set()
+        # Clear queue on disconnect
+        while not self._tick_queue.empty():
+            try:
+                self._tick_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
         deadline = time.time() + 5.0
         while self._future is not None and not self._future.done():
             if time.time() >= deadline:
@@ -89,8 +123,16 @@ class CTPGatewayAdapter(MarketDataPort):
     async def unsubscribe(self, subscription_id: str) -> None:
         raise NotImplementedError("unsubscribe() implemented in Story 2.2")
 
-    def receive_ticks(self) -> AsyncIterator[MarketTick]:
-        raise NotImplementedError("receive_ticks() implemented in Story 2.2")
+    async def receive_ticks(self) -> AsyncIterator[MarketTick]:
+        """Async generator yielding market ticks as they arrive."""
+        try:
+            while True:
+                tick = await self._tick_queue.get()
+                yield tick
+        except asyncio.CancelledError:
+            # Clean shutdown
+            logger.info("tick_receiver_cancelled")
+            raise
 
     # Internal methods
     def _supervisor(self) -> None:
@@ -174,6 +216,94 @@ class CTPGatewayAdapter(MarketDataPort):
         """Provide vnpy gateway loop placeholder; cooperate with shutdown."""
         while not should_shutdown():
             time.sleep(0.05)
+
+    def on_tick(self, tick: Any) -> None:
+        """Override from vnpy BaseGateway - called when market data arrives.
+
+        Args:
+            tick: vnpy TickData object with market data
+
+        """
+        # Check if contract data is available
+        if not hasattr(tick, "symbol") or tick.symbol not in self.symbol_contract_map:
+            return  # Ignore until contracts loaded
+
+        # Translate vnpy tick to domain model
+        try:
+            domain_tick = self._translate_vnpy_tick(tick)
+        except Exception as e:
+            logger.exception(
+                "tick_translation_error",
+                extra={"error": str(e), "symbol": getattr(tick, "symbol", "unknown")},
+            )
+            return
+
+        # Bridge to async queue if not full
+        if not self._tick_queue.full():
+            if self._main_loop and not self._main_loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._tick_queue.put(domain_tick), self._main_loop
+                    )
+                    # We don't wait for the future to complete (fire-and-forget)
+                except Exception as e:
+                    logger.exception("tick_bridge_error", extra={"error": str(e)})
+            else:
+                logger.warning("tick_dropped_no_loop")
+        else:
+            self._dropped_ticks += 1
+            logger.warning(
+                "tick_dropped",
+                extra={"count": self._dropped_ticks, "symbol": domain_tick.symbol},
+            )
+
+    def _translate_vnpy_tick(self, vnpy_tick: Any) -> MarketTick:
+        """Translate vnpy TickData to domain MarketTick.
+
+        Args:
+            vnpy_tick: vnpy TickData object
+
+        Returns:
+            Domain MarketTick model
+
+        """
+        from src.domain.models import MarketTick
+
+        # Handle timezone conversion from China to UTC
+        tick_datetime = vnpy_tick.datetime
+        if tick_datetime.tzinfo is None:
+            # Assume China timezone if not specified
+            tick_datetime = tick_datetime.replace(tzinfo=CHINA_TZ)
+        elif tick_datetime.tzinfo != CHINA_TZ:
+            # Convert to China timezone first if different
+            tick_datetime = tick_datetime.astimezone(CHINA_TZ)
+
+        # Convert to UTC
+        utc_datetime = tick_datetime.astimezone(ZoneInfo("UTC"))
+
+        # Handle MAX_FLOAT adjustment for prices
+        def adjust_price(price: float) -> Decimal:
+            if price == MAX_FLOAT or price >= MAX_FLOAT:
+                return Decimal(0)
+            return Decimal(str(price))
+
+        # Map core fields
+        return MarketTick(
+            symbol=vnpy_tick.symbol,
+            price=adjust_price(vnpy_tick.last_price),
+            volume=Decimal(str(vnpy_tick.volume)) if vnpy_tick.volume else None,
+            timestamp=utc_datetime,
+            bid=(
+                adjust_price(getattr(vnpy_tick, "bid_price_1", 0))
+                if getattr(vnpy_tick, "bid_price_1", None) is not None
+                else None
+            ),
+            ask=(
+                adjust_price(getattr(vnpy_tick, "ask_price_1", 0))
+                if getattr(vnpy_tick, "ask_price_1", None) is not None
+                else None
+            ),
+        )
 
     async def _async_sleep(self, seconds: float) -> None:
         import asyncio as _asyncio

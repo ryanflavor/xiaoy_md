@@ -129,7 +129,7 @@ workflow:
         All stories implemented and reviewed!
         Project development phase complete.
 
-        Reference: .bmad-core/data/bmad-kb.md#IDE Development Workflow
+        Reference: {root}/data/bmad-kb.md#IDE Development Workflow
 
   flow_diagram: |
     ```mermaid
@@ -142,7 +142,7 @@ workflow:
         F -->|Yes| G[Return to relevant agent for fixes]
         F -->|No| H[po: shard documents]
         G --> E
-
+        
         H --> I[sm: create story]
         I --> J{Review draft story?}
         J -->|Yes| K[analyst/pm: review & approve story]
