@@ -68,8 +68,9 @@ async def run_service() -> None:
         # Initialize service components
         # Create NATS publisher with security configuration
         nats_publisher = NATSPublisher(settings)
-        # Use fast-fail retry settings outside production to avoid slow startup
-        if settings.environment.lower() != "production":
+        # In development, shorten retries to keep local startup snappy.
+        # For test/production, keep defaults for stability.
+        if settings.environment.lower() == "development":
             nats_publisher.retry_config = RetryConfig(
                 max_attempts=1,
                 initial_delay=0.1,
@@ -84,8 +85,8 @@ async def run_service() -> None:
         try:
             await service.initialize()
         except (NoServersError, NATSTimeoutError, ConnectionClosedError) as init_err:
-            # Non-fatal in non-production: start in degraded mode when broker is unavailable
-            if settings.environment.lower() != "production":
+            # In development, allow degraded startup; in test/prod, propagate to fail fast
+            if settings.environment.lower() == "development":
                 logger.warning(
                     "Startup degraded: NATS unavailable, continuing",
                     extra={"error": str(init_err)},
