@@ -29,15 +29,19 @@ def set_on_tick(callback: Any) -> None:
 def _connect_components(setting: dict[str, object]) -> tuple[Any, Any, Any]:
     """Create EventEngine, MainEngine, and CTP gateway; return (ee, me, gw)."""
     try:
-        from vnpy.event import EventEngine  # type: ignore[import-untyped]
-        from vnpy.trader.engine import MainEngine  # type: ignore[import-untyped]
-        from vnpy_ctp import CtpGateway  # type: ignore[import-untyped]
+        _event_engine_cls = __import__(
+            "vnpy.event", fromlist=["EventEngine"]
+        ).EventEngine
+        _main_engine_cls = __import__(
+            "vnpy.trader.engine", fromlist=["MainEngine"]
+        ).MainEngine
+        _ctp_gateway_cls = __import__("vnpy_ctp", fromlist=["CtpGateway"]).CtpGateway
     except Exception as exc:
         raise RuntimeError from exc
 
-    ee = EventEngine()
-    me = MainEngine(ee)
-    me.add_gateway(CtpGateway)
+    ee = _event_engine_cls()
+    me = _main_engine_cls(ee)
+    me.add_gateway(_ctp_gateway_cls)
 
     try:
         me.connect(setting, "CTP")
@@ -112,17 +116,18 @@ def _subscribe_symbol(log: logging.Logger, ee: Any, me: Any, gw: Any) -> None:
     while not md_ready["ok"] and time.time() < deadline:
         time.sleep(0.1)
 
-    from vnpy.trader.object import (  # type: ignore[import-untyped]
-        Exchange,
-        SubscribeRequest,
+    _obj_mod = __import__(
+        "vnpy.trader.object", fromlist=["Exchange", "SubscribeRequest"]
     )
+    exchange_cls = _obj_mod.Exchange
+    subscribe_req_cls = _obj_mod.SubscribeRequest
 
     sym, ex = vt.split(".", 1)
     try:
-        ex_enum: Any = Exchange(ex)
+        ex_enum: Any = exchange_cls(ex)
     except Exception:  # noqa: BLE001
         ex_enum = ex
-    sub = SubscribeRequest(symbol=sym, exchange=ex_enum)
+    sub = subscribe_req_cls(symbol=sym, exchange=ex_enum)
     try:
         me.subscribe(sub, "CTP")
         log.info("bridge_subscribed", extra={"vt_symbol": vt})
