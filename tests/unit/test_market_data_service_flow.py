@@ -103,7 +103,8 @@ async def test_market_data_service_sub_unsub_and_process_flow() -> None:
 
     await svc.process_market_data()
     assert len(pub.published) > 0
-    assert pub.published[0][0] == "market.rb2401"
+    # With no exchange in symbol, expect UNKNOWN exchange in subject per story 2.3
+    assert pub.published[0][0] == "market.tick.UNKNOWN.rb2401"
 
     await svc.unsubscribe("sub-1")
     await svc.shutdown()

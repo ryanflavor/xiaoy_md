@@ -9,11 +9,13 @@ from collections import deque
 import contextlib
 import logging
 import time
+from zoneinfo import ZoneInfo
 
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
 logger = logging.getLogger(__name__)
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 class RateLimitError(RuntimeError):
@@ -213,12 +215,24 @@ class MarketDataService:
         # Publish to message broker
         if self.publisher_port:
             try:
-                topic = f"market.{tick.symbol}"
+                # Derive exchange and base symbol for subject naming
+                symbol = tick.symbol
+                if "." in symbol:
+                    # Use last segment as exchange (supports symbols with additional dots)
+                    base_symbol, exchange = symbol.rsplit(".", 1)
+                else:
+                    base_symbol, exchange = symbol, "UNKNOWN"
+
+                topic = f"market.tick.{exchange}.{base_symbol}"
+
+                # Ensure timestamp serialized with Asia/Shanghai timezone per standards
+                ts_china = tick.timestamp.astimezone(CHINA_TZ)
                 data = {
                     "symbol": tick.symbol,
+                    "exchange": exchange,
                     "price": str(tick.price),
                     "volume": str(tick.volume) if tick.volume else None,
-                    "timestamp": tick.timestamp.isoformat(),
+                    "timestamp": ts_china.isoformat(),
                     "bid": str(tick.bid) if tick.bid else None,
                     "ask": str(tick.ask) if tick.ask else None,
                 }
