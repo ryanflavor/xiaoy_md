@@ -7,8 +7,15 @@ All models are immutable as per coding standards.
 from datetime import datetime
 from decimal import Decimal
 import re
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _now_china() -> datetime:
+    return datetime.now(CHINA_TZ)
 
 
 class InvalidSymbolError(ValueError):
@@ -88,7 +95,7 @@ class MarketDataSubscription(BaseModel):
     symbol: str = Field(..., description="Symbol to subscribe to")
     exchange: str = Field(..., description="Exchange where the symbol is traded")
     created_at: datetime = Field(
-        default_factory=datetime.now, description="Subscription creation time"
+        default_factory=_now_china, description="Subscription creation time"
     )
     active: bool = Field(default=True, description="Whether subscription is active")
 

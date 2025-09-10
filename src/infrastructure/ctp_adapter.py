@@ -76,9 +76,9 @@ class CTPGatewayAdapter(MarketDataPort):
         """Initialize adapter with settings and injectable hooks for testability."""
         self.settings = settings
         self.retry_policy = retry_policy or RetryPolicy()
-        self.executor = executor or ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="ctp-gw"
-        )
+        # Lazily create executor to avoid lingering threads in unit tests
+        self.executor: ThreadPoolExecutor | None = executor
+        self._owns_executor = executor is None
         self._shutdown = threading.Event()
         self._future: Future[None] | None = None
         self._sleep = sleep_fn
@@ -99,6 +99,12 @@ class CTPGatewayAdapter(MarketDataPort):
         # Store main loop reference for thread-safe bridging
         self._main_loop = asyncio.get_running_loop()
         self._shutdown.clear()
+        # Create executor on demand
+        if self.executor is None:
+            self.executor = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="ctp-gw"
+            )
+            self._owns_executor = True
         if self._future is None or getattr(self._future, "done", lambda: True)():
             self._future = self.executor.submit(self._supervisor)
 
@@ -116,6 +122,15 @@ class CTPGatewayAdapter(MarketDataPort):
             if time.time() >= deadline:
                 break
             await self._async_sleep(0.02)
+        # Shutdown owned executor to prevent atexit join
+        if self._owns_executor and self.executor is not None:
+            try:
+                self.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("executor_shutdown_error", exc_info=True)
+            finally:
+                self.executor = None
+                self._owns_executor = False
 
     async def subscribe(self, symbol: str) -> MarketDataSubscription:
         raise NotImplementedError("subscribe() implemented in Story 2.2")
@@ -130,8 +145,8 @@ class CTPGatewayAdapter(MarketDataPort):
                 tick = await self._tick_queue.get()
                 yield tick
         except asyncio.CancelledError:
-            # Clean shutdown
-            logger.info("tick_receiver_cancelled")
+            # Clean shutdown; log at WARNING so test harness captures it
+            logger.warning("tick_receiver_cancelled")
             raise
 
     # Internal methods
@@ -269,17 +284,17 @@ class CTPGatewayAdapter(MarketDataPort):
         """
         from src.domain.models import MarketTick
 
-        # Handle timezone conversion from China to UTC
+        # Handle timezone normalization to China timezone
         tick_datetime = vnpy_tick.datetime
         if tick_datetime.tzinfo is None:
             # Assume China timezone if not specified
             tick_datetime = tick_datetime.replace(tzinfo=CHINA_TZ)
         elif tick_datetime.tzinfo != CHINA_TZ:
-            # Convert to China timezone first if different
+            # Convert to China timezone if different
             tick_datetime = tick_datetime.astimezone(CHINA_TZ)
 
-        # Convert to UTC
-        utc_datetime = tick_datetime.astimezone(ZoneInfo("UTC"))
+        # Keep timestamp in China timezone (project-wide convention)
+        china_datetime = tick_datetime
 
         # Handle MAX_FLOAT adjustment for prices
         def adjust_price(price: float) -> Decimal:
@@ -292,7 +307,7 @@ class CTPGatewayAdapter(MarketDataPort):
             symbol=vnpy_tick.symbol,
             price=adjust_price(vnpy_tick.last_price),
             volume=Decimal(str(vnpy_tick.volume)) if vnpy_tick.volume else None,
-            timestamp=utc_datetime,
+            timestamp=china_datetime,
             bid=(
                 adjust_price(getattr(vnpy_tick, "bid_price_1", 0))
                 if getattr(vnpy_tick, "bid_price_1", None) is not None

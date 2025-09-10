@@ -56,13 +56,20 @@ class JsonFormatter(logging.Formatter):
     """Minimal JSON log formatter; includes adapter retry extras if present."""
 
     def format(self, record: logging.LogRecord) -> str:
+        from datetime import datetime
+        from zoneinfo import (
+            ZoneInfo,  # Local import to avoid global dependency at import time
+        )
+
+        china_tz = ZoneInfo("Asia/Shanghai")
+        ts = datetime.fromtimestamp(record.created, tz=china_tz).strftime(
+            "%Y-%m-%dT%H:%M:%S%z"
+        )
         data: dict[str, Any] = {
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
-            "time": time.strftime(
-                "%Y-%m-%dT%H:%M:%S%z", time.localtime(record.created)
-            ),
+            "time": ts,
         }
         # Include adapter supervision extras when present
         for key in ("attempt", "reason", "next_backoff"):

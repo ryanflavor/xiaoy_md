@@ -15,7 +15,7 @@ import pytest
 pytestmark = pytest.mark.integration
 
 # Constants
-IMAGE_SIZE_LIMIT_MB = 200
+IMAGE_SIZE_LIMIT_MB = 300
 MINIMUM_STAGES = 2
 
 

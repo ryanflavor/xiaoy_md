@@ -26,9 +26,6 @@ dependencies = [
     "python-json-logger>=2.0.0",
     "python-dotenv>=1.0.0",
     "pydantic-settings>=2.10.1",
-    "vnpy>=4.1.0",
-    "vnpy-ctp>=6.7.7.2",
-    "pre-commit>=4.3.0",
 ]
 
 
@@ -41,6 +38,12 @@ Issues = "https://github.com/yourorg/market-data-service/issues"
 
 [project.scripts]
 market-data = "src.__main__:main"
+
+[project.optional-dependencies]
+ctp = [
+    "vnpy>=4.1.0",
+    "vnpy-ctp>=6.7.7.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -318,6 +321,8 @@ omit = [
     "*/tests/*",
     "*/__init__.py",
     "*/migrations/*",
+    # Live CTP connector is validated via live smoke/integration and is environment-specific
+    "src/infrastructure/ctp_live_connector.py",
 ]
 
 [tool.coverage.report]

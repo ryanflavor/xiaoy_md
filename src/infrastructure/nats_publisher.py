@@ -8,13 +8,14 @@ import asyncio
 from collections.abc import Awaitable, Callable
 import contextlib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 import json
 import logging
 import secrets
 import time
 from typing import Any, TypeVar
+from zoneinfo import ZoneInfo
 
 from nats.aio.client import Client as NATS
 from nats.errors import ConnectionClosedError
@@ -26,6 +27,7 @@ from src.domain.ports import MessagePublisherPort
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 class CircuitBreakerOpenError(ConnectionClosedError):
@@ -407,7 +409,9 @@ class NATSPublisher(MessagePublisherPort):
             logger.error(f"Unexpected error during health check: {e}", exc_info=True)
             return False
         else:
-            self._connection_stats["last_health_check"] = datetime.now(UTC).isoformat()
+            self._connection_stats["last_health_check"] = datetime.now(
+                CHINA_TZ
+            ).isoformat()
             return True
 
     async def _setup_health_check_responder(self) -> None:
@@ -422,7 +426,7 @@ class NATSPublisher(MessagePublisherPort):
                 health_status = {
                     "service": self.settings.app_name,
                     "status": "healthy" if await self.health_check() else "unhealthy",
-                    "timestamp": datetime.now(UTC).isoformat(),
+                    "timestamp": datetime.now(CHINA_TZ).isoformat(),
                     "stats": self._connection_stats,
                     "circuit_breaker_state": self.circuit_breaker.state.value,
                 }

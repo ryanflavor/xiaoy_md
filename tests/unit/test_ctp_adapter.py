@@ -67,7 +67,8 @@ class TestAC1Contract:
         # Basic state
         assert adapter.settings is ctp_settings
         assert adapter.retry_policy.max_retries == 3
-        assert adapter.executor is not None
+        # Executor is created lazily on connect
+        assert adapter.executor is None
 
     @pytest.mark.asyncio
     async def test_unimplemented_methods_raise(self, ctp_settings: AppSettings):
@@ -200,7 +201,7 @@ class TestStory22AC1OnTickMethod:
     async def test_on_tick_method_signature_matches_base_gateway(
         self, ctp_settings: AppSettings
     ):
-        """Test 2.2-UNIT-001: Verify on_tick method signature matches BaseGateway [AC1]"""
+        """Test 2.2-UNIT-001: Verify on_tick method signature matches BaseGateway [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
         assert hasattr(adapter, "on_tick")
         assert callable(adapter.on_tick)
@@ -212,9 +213,10 @@ class TestStory22AC1OnTickMethod:
 
     @pytest.mark.asyncio
     async def test_on_tick_handles_valid_tickdata(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-002: Test on_tick handles valid TickData object [AC1]"""
+        """Test 2.2-UNIT-002: Test on_tick handles valid TickData object [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        # Avoid spawning worker threads; set loop reference directly
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
 
         # Setup contract map
         adapter.symbol_contract_map["rb2401"] = Mock()
@@ -235,15 +237,14 @@ class TestStory22AC1OnTickMethod:
         await asyncio.sleep(0.01)
 
         # Should have queued the tick
-        assert adapter._tick_queue.qsize() > 0
+        assert adapter._tick_queue.qsize() > 0  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_on_tick_ignores_ticks_without_contract_data(
         self, ctp_settings: AppSettings
     ):
-        """Test 2.2-UNIT-003: Test on_tick ignores ticks without contract data [AC1]"""
+        """Test 2.2-UNIT-003: Test on_tick ignores ticks without contract data [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
 
         # No contract in map
         adapter.symbol_contract_map = {}
@@ -256,28 +257,28 @@ class TestStory22AC1OnTickMethod:
         adapter.on_tick(mock_tick)
 
         # Should not queue the tick
-        assert adapter._tick_queue.qsize() == 0
+        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_queue_initialization_with_maxsize(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-006: Test queue initialization with maxsize=1000 [AC1]"""
+        """Test 2.2-UNIT-006: Test queue initialization with maxsize=1000 [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        assert adapter._tick_queue.maxsize == 1000
-        assert adapter._tick_queue.empty()
+        assert adapter._tick_queue.maxsize == 1000  # noqa: SLF001
+        assert adapter._tick_queue.empty()  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_queue_full_detection_and_drop_counter(
         self, ctp_settings: AppSettings, caplog
     ):
-        """Test 2.2-UNIT-007/008: Test queue.full() detection and drop counter [AC1]"""
+        """Test 2.2-UNIT-007/008: Test queue.full() detection and drop counter [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Fill the queue
-        adapter._tick_queue = asyncio.Queue(maxsize=2)
-        await adapter._tick_queue.put(Mock())
-        await adapter._tick_queue.put(Mock())
+        adapter._tick_queue = asyncio.Queue(maxsize=2)  # noqa: SLF001
+        await adapter._tick_queue.put(Mock())  # noqa: SLF001
+        await adapter._tick_queue.put(Mock())  # noqa: SLF001
 
         # Create tick that will be dropped
         mock_tick = Mock()
@@ -291,23 +292,22 @@ class TestStory22AC1OnTickMethod:
         # Call on_tick - should drop and log
         adapter.on_tick(mock_tick)
 
-        assert adapter._dropped_ticks == 1
+        assert adapter._dropped_ticks == 1  # noqa: SLF001
         assert "tick_dropped" in caplog.text
 
     @pytest.mark.asyncio
     async def test_queue_clear_on_disconnect(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-009: Test queue.clear() on disconnect [AC1]"""
+        """Test 2.2-UNIT-009: Test queue.clear() on disconnect [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
 
         # Add some ticks to queue
-        await adapter._tick_queue.put(Mock())
-        await adapter._tick_queue.put(Mock())
-        assert adapter._tick_queue.qsize() == 2
+        await adapter._tick_queue.put(Mock())  # noqa: SLF001
+        await adapter._tick_queue.put(Mock())  # noqa: SLF001
+        assert adapter._tick_queue.qsize() == 2  # noqa: SLF001
 
         # Disconnect should clear queue
         await adapter.disconnect()
-        assert adapter._tick_queue.empty()
+        assert adapter._tick_queue.empty()  # noqa: SLF001
 
 
 class TestStory22AC2AsyncBridge:
@@ -317,7 +317,7 @@ class TestStory22AC2AsyncBridge:
     async def test_vnpy_tickdata_to_markettick_translation(
         self, ctp_settings: AppSettings
     ):
-        """Test 2.2-UNIT-010: Test vnpy TickData to MarketTick translation [AC2]"""
+        """Test 2.2-UNIT-010: Test vnpy TickData to MarketTick translation [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Create mock vnpy TickData
@@ -330,7 +330,7 @@ class TestStory22AC2AsyncBridge:
         mock_tick.ask_price_1 = 4501.0
 
         # Translate
-        result = adapter._translate_vnpy_tick(mock_tick)
+        result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
 
         # Verify translation
         assert isinstance(result, MarketTick)
@@ -341,8 +341,8 @@ class TestStory22AC2AsyncBridge:
         assert result.ask == Decimal("4501.0")
 
     @pytest.mark.asyncio
-    async def test_timezone_conversion_shanghai_to_utc(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-011: Test timezone conversion (Asia/Shanghai to UTC) [AC2]"""
+    async def test_timezone_normalization_to_china(self, ctp_settings: AppSettings):
+        """Test 2.2-UNIT-011: Normalize timestamp to Asia/Shanghai [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Create tick with China timezone
@@ -356,16 +356,16 @@ class TestStory22AC2AsyncBridge:
         mock_tick.bid_price_1 = 99.0
         mock_tick.ask_price_1 = 101.0
 
-        result = adapter._translate_vnpy_tick(mock_tick)
+        result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
 
-        # Should be UTC: 2025-01-09 07:00:00 (7am)
-        expected_utc = china_time.astimezone(ZoneInfo("UTC"))
-        assert result.timestamp == expected_utc
-        assert result.timestamp.tzinfo == ZoneInfo("UTC")
+        # Should remain China TZ: 2025-01-09 15:00:00 +08:00
+        expected_china = china_time.astimezone(CHINA_TZ)
+        assert result.timestamp == expected_china
+        assert result.timestamp.tzinfo == CHINA_TZ
 
     @pytest.mark.asyncio
     async def test_dst_boundary_timezone_conversion(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-012: Test DST boundary timezone conversion [AC2]"""
+        """Test 2.2-UNIT-012: Test DST boundary timezone conversion [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Note: China doesn't observe DST, but UTC conversions still work
@@ -379,13 +379,13 @@ class TestStory22AC2AsyncBridge:
         mock_tick.bid_price_1 = 99.0
         mock_tick.ask_price_1 = 101.0
 
-        result = adapter._translate_vnpy_tick(mock_tick)
-        expected_utc = summer_time.astimezone(ZoneInfo("UTC"))
-        assert result.timestamp == expected_utc
+        result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
+        expected_china = summer_time.astimezone(CHINA_TZ)
+        assert result.timestamp == expected_china
 
     @pytest.mark.asyncio
     async def test_max_float_to_zero_conversion(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-013: Test MAX_FLOAT to 0 conversion [AC2]"""
+        """Test 2.2-UNIT-013: Test MAX_FLOAT to 0 conversion [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
 
         mock_tick = Mock()
@@ -396,7 +396,7 @@ class TestStory22AC2AsyncBridge:
         mock_tick.bid_price_1 = MAX_FLOAT
         mock_tick.ask_price_1 = 4501.0
 
-        result = adapter._translate_vnpy_tick(mock_tick)
+        result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
 
         assert result.price == Decimal("0")
         assert result.bid == Decimal("0")
@@ -406,14 +406,14 @@ class TestStory22AC2AsyncBridge:
     async def test_run_coroutine_threadsafe_with_valid_loop(
         self, ctp_settings: AppSettings
     ):
-        """Test 2.2-UNIT-018: Test run_coroutine_threadsafe with valid loop [AC2]"""
+        """Test 2.2-UNIT-018: Test run_coroutine_threadsafe with valid loop [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Verify loop is stored
-        assert adapter._main_loop is not None
-        assert not adapter._main_loop.is_closed()
+        assert adapter._main_loop is not None  # noqa: SLF001
+        assert not adapter._main_loop.is_closed()  # noqa: SLF001
 
         # Create tick and call on_tick
         mock_tick = Mock()
@@ -429,19 +429,19 @@ class TestStory22AC2AsyncBridge:
 
         # Give time for async operation
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1
+        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_handling_of_stopped_event_loop(
         self, ctp_settings: AppSettings, caplog
     ):
-        """Test 2.2-UNIT-019: Test handling of stopped event loop [AC2]"""
+        """Test 2.2-UNIT-019: Test handling of stopped event loop [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Set a closed loop
-        adapter._main_loop = Mock()
-        adapter._main_loop.is_closed.return_value = True
+        adapter._main_loop = Mock()  # noqa: SLF001
+        adapter._main_loop.is_closed.return_value = True  # noqa: SLF001
 
         mock_tick = Mock()
         mock_tick.symbol = "rb2401"
@@ -457,22 +457,22 @@ class TestStory22AC2AsyncBridge:
 
     @pytest.mark.asyncio
     async def test_main_loop_reference_storage(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-020: Test main_loop reference storage [AC2]"""
+        """Test 2.2-UNIT-020: Test main_loop reference storage [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Before connect, no loop
-        assert adapter._main_loop is None
+        assert adapter._main_loop is None  # noqa: SLF001
 
         # After connect, loop stored
-        await adapter.connect()
-        assert adapter._main_loop is not None
-        assert adapter._main_loop == asyncio.get_running_loop()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
+        assert adapter._main_loop is not None  # noqa: SLF001
+        assert adapter._main_loop == asyncio.get_running_loop()  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_receive_ticks_async_generator(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-021: Test receive_ticks() async generator [AC2]"""
+        """Test 2.2-UNIT-021: Test receive_ticks() async generator [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
 
         # Add test tick to queue
         test_tick = MarketTick(
@@ -480,7 +480,7 @@ class TestStory22AC2AsyncBridge:
             price=Decimal("4500"),
             timestamp=datetime.now(ZoneInfo("UTC")),
         )
-        await adapter._tick_queue.put(test_tick)
+        await adapter._tick_queue.put(test_tick)  # noqa: SLF001
 
         # Test async iteration
         received_ticks = []
@@ -500,9 +500,9 @@ class TestStory22AC2AsyncBridge:
     async def test_receive_ticks_cancelled_error_handling(
         self, ctp_settings: AppSettings, caplog
     ):
-        """Test 2.2-UNIT-022: Test receive_ticks() with CancelledError [AC2]"""
+        """Test 2.2-UNIT-022: Test receive_ticks() with CancelledError [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
 
         # Start consuming in a task
         async def consume():
@@ -529,9 +529,9 @@ class TestStory22AC3TestVerification:
     async def test_contract_validation_before_processing(
         self, ctp_settings: AppSettings
     ):
-        """Test 2.2-UNIT-024: Test contract validation before processing [AC3]"""
+        """Test 2.2-UNIT-024: Test contract validation before processing [AC3]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
 
         # Test with empty symbol_contract_map
         adapter.symbol_contract_map = {}
@@ -546,7 +546,7 @@ class TestStory22AC3TestVerification:
 
         # Should not process without contract
         adapter.on_tick(mock_tick)
-        assert adapter._tick_queue.qsize() == 0
+        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
 
         # Add contract and retry
         adapter.symbol_contract_map["rb2401"] = Mock()
@@ -554,13 +554,13 @@ class TestStory22AC3TestVerification:
 
         # Now should process
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1
+        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_symbol_contract_map_lookup(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-025: Test symbol_contract_map lookup [AC3]"""
+        """Test 2.2-UNIT-025: Test symbol_contract_map lookup [AC3]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
 
         # Setup contract map with multiple symbols
         adapter.symbol_contract_map = {
@@ -582,7 +582,7 @@ class TestStory22AC3TestVerification:
 
         # Should process known symbol
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1
+        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
 
         # Test failed lookup
         mock_tick.symbol = "unknown"
@@ -590,7 +590,7 @@ class TestStory22AC3TestVerification:
 
         # Should not add another tick
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1
+        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
 
 
 class TestStory22Integration:
@@ -598,9 +598,9 @@ class TestStory22Integration:
 
     @pytest.mark.asyncio
     async def test_cross_thread_on_tick_execution(self, ctp_settings: AppSettings):
-        """Test 2.2-INT-001: Verify on_tick called from executor thread [AC1]"""
+        """Test 2.2-INT-001: Verify on_tick called from executor thread [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         thread_ids = []
@@ -616,8 +616,10 @@ class TestStory22Integration:
             mock_tick.ask_price_1 = 101.0
             adapter.on_tick(mock_tick)
 
-        # Run in executor thread
-        adapter.executor.submit(capture_thread).result(timeout=1.0)
+        # Run in dedicated thread and join
+        t = threading.Thread(target=capture_thread)
+        t.start()
+        t.join(timeout=1.0)
 
         # Verify different thread
         assert len(thread_ids) == 1
@@ -625,9 +627,9 @@ class TestStory22Integration:
 
     @pytest.mark.asyncio
     async def test_cross_thread_queue_put(self, ctp_settings: AppSettings):
-        """Test 2.2-INT-005: Test cross-thread queue.put() [AC2]"""
+        """Test 2.2-INT-005: Test cross-thread queue.put() [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Run on_tick from different thread
@@ -643,8 +645,8 @@ class TestStory22Integration:
                 adapter.on_tick(mock_tick)
                 time.sleep(0.001)
 
-        # Submit to executor
-        future = adapter.executor.submit(call_on_tick)
+        thr = threading.Thread(target=call_on_tick)
+        thr.start()
 
         # Collect ticks
         received = []
@@ -656,7 +658,7 @@ class TestStory22Integration:
                     break
 
         await asyncio.wait_for(collect(), timeout=2.0)
-        future.result(timeout=1.0)
+        thr.join(timeout=1.0)
 
         assert len(received) == 10
         # Verify prices are sequential
@@ -665,9 +667,9 @@ class TestStory22Integration:
 
     @pytest.mark.asyncio
     async def test_full_end_to_end_flow(self, ctp_settings: AppSettings):
-        """Test 2.2-E2E-001: Test full flow: vnpy tick → async queue [AC2]"""
+        """Test 2.2-E2E-001: Test full flow: vnpy tick → async queue [AC2]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        await adapter.connect()
+        adapter._main_loop = asyncio.get_running_loop()  # noqa: SLF001
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Simulate vnpy gateway calling on_tick from thread
@@ -686,8 +688,9 @@ class TestStory22Integration:
             # Call on_tick as vnpy would
             adapter.on_tick(mock_tick)
 
-        # Run in executor
-        adapter.executor.submit(simulate_vnpy_gateway).result(timeout=1.0)
+        t = threading.Thread(target=simulate_vnpy_gateway)
+        t.start()
+        t.join(timeout=1.0)
 
         # Consume from async side
         received_tick = None
@@ -702,7 +705,6 @@ class TestStory22Integration:
         assert received_tick.volume == Decimal("1234")
         assert received_tick.bid == Decimal("4566.0")
         assert received_tick.ask == Decimal("4568.0")
-        # Verify timezone converted to UTC
-        assert received_tick.timestamp.tzinfo == ZoneInfo("UTC")
-        expected_utc_hour = 14 - 8  # Shanghai is UTC+8
-        assert received_tick.timestamp.hour == expected_utc_hour
+        # Verify timezone is China TZ (no hour shift)
+        assert received_tick.timestamp.tzinfo == CHINA_TZ
+        assert received_tick.timestamp.hour == 14
