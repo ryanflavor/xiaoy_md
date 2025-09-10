@@ -102,9 +102,19 @@ async def main() -> int:
     gateway_connect = _load_connector_from_env()
 
     adapter = CTPGatewayAdapter(settings, gateway_connect=gateway_connect)
-    # Attach adapter-bound on_tick so the connector can forward TickData
+    # Attach adapter-bound on_tick via public API when available
     with contextlib.suppress(Exception):
-        cast(Any, gateway_connect)._on_tick = adapter.on_tick  # noqa: SLF001
+        target = os.environ.get("CTP_GATEWAY_CONNECT")
+        if target:
+            module_path = (
+                target.split(":", 1)[0] if ":" in target else target.rsplit(".", 1)[0]
+            )
+            mod = importlib.import_module(module_path)
+            setter = getattr(mod, "set_on_tick", None)
+            if callable(setter):
+                setter(adapter.on_tick)
+            else:
+                cast(Any, gateway_connect)._on_tick = adapter.on_tick  # noqa: SLF001
 
     # Best-effort contract gate: allow base symbol until real contracts loaded.
     base_symbol = symbol.split(".")[0]

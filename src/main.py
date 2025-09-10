@@ -49,8 +49,19 @@ async def _run() -> int:
     settings = AppSettings()
     connector = _load_connector_from_env()
     adapter = CTPGatewayAdapter(settings, gateway_connect=connector)
+    # Prefer public API for binding on_tick, fallback to private attribute
     with contextlib.suppress(Exception):
-        cast(Any, connector)._on_tick = adapter.on_tick  # noqa: SLF001
+        target = os.environ.get("CTP_GATEWAY_CONNECT")
+        if target:
+            module_path = (
+                target.split(":", 1)[0] if ":" in target else target.rsplit(".", 1)[0]
+            )
+            mod = importlib.import_module(module_path)
+            setter = getattr(mod, "set_on_tick", None)
+            if callable(setter):
+                setter(adapter.on_tick)
+            else:
+                cast(Any, connector)._on_tick = adapter.on_tick  # noqa: SLF001
 
     service = TickIngestService(adapter, _NoopPublisher())
     await service.start()

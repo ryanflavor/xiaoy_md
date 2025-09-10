@@ -321,8 +321,6 @@ omit = [
     "*/tests/*",
     "*/__init__.py",
     "*/migrations/*",
-    # Live CTP connector is validated via live smoke/integration and is environment-specific
-    "src/infrastructure/ctp_live_connector.py",
 ]
 
 [tool.coverage.report]

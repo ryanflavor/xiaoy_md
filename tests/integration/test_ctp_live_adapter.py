@@ -54,10 +54,16 @@ async def test_ctp_live_tick_flow() -> None:
     symbol = os.environ["CTP_SYMBOL"]
     adapter = CTPGatewayAdapter(settings, gateway_connect=gateway_connect)
 
-    # attach callback for forwarding
+    # attach callback for forwarding via public API when available
     with contextlib.suppress(Exception):
-        attr_name = "_on_tick"
-        setattr(gateway_connect, attr_name, adapter.on_tick)
+        module_path = os.environ["CTP_GATEWAY_CONNECT"].split(":", 1)[0]
+        mod = importlib.import_module(module_path)
+        setter = getattr(mod, "set_on_tick", None)
+        if callable(setter):
+            setter(adapter.on_tick)
+        else:
+            name = "_on_tick"
+            setattr(gateway_connect, name, adapter.on_tick)
 
     # allow base symbol before contracts fully loaded
     base_symbol = symbol.split(".")[0]

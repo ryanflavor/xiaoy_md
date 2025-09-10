@@ -17,6 +17,15 @@ if TYPE_CHECKING:  # type-only imports
     from collections.abc import Callable
 
 
+def set_on_tick(callback: Any) -> None:
+    """Public API to set forwarding callback used by live_gateway_connect.
+
+    Stores the callback on the function object to avoid extra globals.
+    """
+    name = "_on_tick"
+    setattr(live_gateway_connect, name, callback)
+
+
 def live_gateway_connect(  # noqa: PLR0912, PLR0915
     setting: dict[str, object], should_shutdown: Callable[[], bool]
 ) -> None:
