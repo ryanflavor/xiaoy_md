@@ -92,13 +92,15 @@ def _create_event_handlers(
 ) -> tuple[Any, Any]:
     """Create event handlers for CTP events."""
     try:
-        from vnpy.event import Event  # type: ignore[import-untyped]  # noqa: TC002
-        from vnpy.trader.object import LogData  # type: ignore  # noqa: F401, PGH003
+        _event_mod = __import__(
+            "vnpy.event", fromlist=["Event"]
+        )  # dynamic import for CI
+        _event_cls = _event_mod.Event
     except ImportError:
         return None, None
 
-    def on_log(event: Event) -> None:
-        log_data = event.data  # type: LogData
+    def on_log(event: Any) -> None:
+        log_data = event.data
         msg = log_data.msg
         level = log_data.level
 
@@ -124,7 +126,7 @@ def _create_event_handlers(
             connection_status["connected"] = True
             log.info("ctp_smoke_connected")
 
-    def on_contract(event: Event) -> None:  # noqa: ARG001
+    def on_contract(event: Any) -> None:  # noqa: ARG001
         # Receipt of contract data indicates successful connection
         if not connection_status["connected"]:
             connection_status["connected"] = True
@@ -165,16 +167,20 @@ def real_ctp_gateway_connect(
 
     """
     try:
-        from vnpy.event import EventEngine
-        from vnpy.trader.engine import MainEngine  # type: ignore[import-untyped]
-        from vnpy_ctp import CtpGateway  # type: ignore[import-untyped]
+        _event_engine_cls = __import__(
+            "vnpy.event", fromlist=["EventEngine"]
+        ).EventEngine
+        _main_engine_cls = __import__(
+            "vnpy.trader.engine", fromlist=["MainEngine"]
+        ).MainEngine
+        _ctp_gateway_cls = __import__("vnpy_ctp", fromlist=["CtpGateway"]).CtpGateway
     except ImportError as exc:
         msg = "vnpy/vnpy_ctp not installed. Install locally via 'uv add vnpy vnpy_ctp'"
         raise RuntimeError(msg) from exc
 
     log = logging.getLogger(__name__)
-    event_engine = EventEngine()
-    main_engine = MainEngine(event_engine)
+    event_engine = _event_engine_cls()
+    main_engine = _main_engine_cls(event_engine)
 
     # Track connection status
     connection_status = {"connected": False, "error": None}
@@ -186,7 +192,7 @@ def real_ctp_gateway_connect(
         event_engine.register("eContract", on_contract)
 
     # Register CTP gateway
-    main_engine.add_gateway(CtpGateway)
+    main_engine.add_gateway(_ctp_gateway_cls)
 
     # Attempt connect; support both common call signatures
     try:
