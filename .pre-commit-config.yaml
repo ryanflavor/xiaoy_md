@@ -85,7 +85,7 @@ repos:
         entry: '\bprint\('
         language: pygrep
         types: [python]
-        exclude: '^(scripts/|tests/)'
+        exclude: '^(scripts/|tests/|references/|docs/)'
 
       - id: no-todos
         name: Check for TODO comments

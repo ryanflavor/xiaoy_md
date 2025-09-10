@@ -4,7 +4,9 @@ This module contains the application layer services that orchestrate
 domain logic and coordinate between different ports.
 """
 
+import asyncio
 from collections import deque
+import contextlib
 import logging
 import time
 
@@ -294,3 +296,44 @@ class MarketDataService:
         now = time.time()
         for _ in range(count):
             timestamps.append(now)
+
+
+class TickIngestService:
+    """Async service that bridges MarketDataPort to a generic publisher.
+
+    Minimal ingest used by the live composition entry. Publisher only needs a
+    `publish_tick(tick)` coroutine method; this avoids coupling to transport.
+    """
+
+    def __init__(self, market_data, publisher) -> None:  # type: ignore[no-untyped-def]
+        """Initialize the ingest bridge.
+
+        Args:
+            market_data: Source implementing `connect`, `disconnect`, and `receive_ticks()`.
+            publisher: Target exposing async `publish_tick(tick)`.
+
+        """
+        self._market_data = market_data
+        self._publisher = publisher
+        self._task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        await self._market_data.connect()
+
+        async def _run() -> None:
+            async for tick in self._market_data.receive_ticks():
+                if hasattr(self._publisher, "publish_tick"):
+                    await self._publisher.publish_tick(tick)
+
+        self._task = asyncio.create_task(_run())
+
+    async def stop(self) -> None:
+        task = self._task
+        if task is not None:
+            try:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            finally:
+                self._task = None
+        await self._market_data.disconnect()

@@ -8,7 +8,12 @@ import sys
 
 from nats.errors import ConnectionClosedError, NoServersError
 from nats.errors import TimeoutError as NATSTimeoutError
-from pythonjsonlogger import jsonlogger
+
+try:
+    # Newer versions
+    from pythonjsonlogger.json import JsonFormatter
+except ImportError:  # pragma: no cover - fallback for older versions
+    from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore[attr-defined]
 
 from src.application.services import MarketDataService
 from src.config import settings
@@ -21,7 +26,7 @@ def setup_logging() -> None:
 
     handler = logging.StreamHandler()
     if settings.log_format == "json":
-        formatter: logging.Formatter = jsonlogger.JsonFormatter(  # type: ignore[attr-defined]
+        formatter: logging.Formatter = JsonFormatter(
             fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
@@ -86,8 +91,12 @@ async def run_service() -> None:
         try:
             await service.initialize()
         except (NoServersError, NATSTimeoutError, ConnectionClosedError) as init_err:
-            # In development, allow degraded startup; in test/prod, propagate to fail fast
-            if settings.environment.lower() == "development":
+            # In development, allow degraded startup; in test/prod, propagate to fail fast.
+            # Respect runtime ENVIRONMENT override in addition to loaded settings.
+            effective_env = (
+                os.environ.get("ENVIRONMENT") or settings.environment
+            ).lower()
+            if effective_env == "development":
                 logger.warning(
                     "Startup degraded: NATS unavailable, continuing",
                     extra={"error": str(init_err)},

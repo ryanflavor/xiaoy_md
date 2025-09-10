@@ -198,6 +198,13 @@ This project follows **Hexagonal Architecture** (Ports and Adapters) principles:
 3. **Port Interfaces**: All external dependencies are abstracted behind interfaces
 4. **Test-Driven Development**: Write tests first, then implementation
 
+### Timezone Policy
+
+- The project standardizes on Asia/Shanghai (UTC+08:00) for all timestamps.
+- All domain and infrastructure timestamps are timezone‑aware and serialized with `+08:00`.
+- Incoming timestamps from external systems are normalized to Asia/Shanghai at the adapter boundary.
+- If an integration strictly requires UTC, convert at the boundary for that integration only; do not change internal models.
+
 ## Configuration
 
 The application uses environment variables for configuration. Copy `.env.example` to `.env` and adjust values:
