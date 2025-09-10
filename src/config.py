@@ -54,6 +54,11 @@ class AppSettings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or text)")
 
+    # Serialization strategy for publisher payloads
+    serialization_strategy: str = Field(
+        default="json", description="Serialization strategy for payloads (json|pickle)"
+    )
+
     # CTP credentials and endpoints
     ctp_broker_id: str | None = Field(default=None, description="CTP broker ID")
     ctp_user_id: str | None = Field(default=None, description="CTP user ID")
