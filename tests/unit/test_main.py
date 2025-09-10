@@ -234,7 +234,6 @@ class TestRunService:
 class TestMain:
     """Test the main entry point."""
 
-    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     @patch("src.__main__.asyncio.run")
     @patch("sys.exit")
@@ -248,7 +247,15 @@ class TestMain:
         Then: Should setup logging and run async service
         """
         # Simulate KeyboardInterrupt to stop the service
-        mock_asyncio_run.side_effect = KeyboardInterrupt
+        # Prevent coroutine 'never awaited' warnings by closing it inside fake run
+        import contextlib
+
+        def _fake_run(coro):
+            with contextlib.suppress(Exception):
+                coro.close()
+            raise KeyboardInterrupt
+
+        mock_asyncio_run.side_effect = _fake_run
 
         main()
 
@@ -256,7 +263,6 @@ class TestMain:
         mock_asyncio_run.assert_called_once()
         mock_exit.assert_called_once_with(0)
 
-    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     @patch("src.__main__.asyncio.run")
     @patch("sys.exit")
@@ -269,7 +275,14 @@ class TestMain:
         When: main() encounters an exception
         Then: Should exit with error code 1
         """
-        mock_asyncio_run.side_effect = RuntimeError("Test error")
+        import contextlib
+
+        def _fake_run(coro):
+            with contextlib.suppress(Exception):
+                coro.close()
+            raise RuntimeError
+
+        mock_asyncio_run.side_effect = _fake_run
 
         main()
 
@@ -277,7 +290,6 @@ class TestMain:
         mock_asyncio_run.assert_called_once()
         mock_exit.assert_called_once_with(1)
 
-    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     def test_main_logging_setup_error(self, mock_setup_logging):
         """Test handling of logging setup errors.
