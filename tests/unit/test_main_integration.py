@@ -148,6 +148,7 @@ class TestMainIntegration:
                     config_call = mock_basic_config.call_args
                     assert config_call.kwargs["level"] == 20  # INFO level
 
+    @patch("src.__main__.run_service", return_value=None)
     def test_main_success(self, test_settings):
         """Test main function successful execution."""
         with patch("src.__main__.settings", test_settings):
@@ -162,6 +163,7 @@ class TestMainIntegration:
                         mock_async_run.assert_called_once()
                         mock_exit.assert_called_once_with(0)
 
+    @patch("src.__main__.run_service", return_value=None)
     def test_main_keyboard_interrupt(self, test_settings):
         """Test main function handles KeyboardInterrupt."""
         with patch("src.__main__.settings", test_settings):
@@ -175,6 +177,7 @@ class TestMainIntegration:
 
                         mock_exit.assert_called_once_with(0)
 
+    @patch("src.__main__.run_service", return_value=None)
     def test_main_exception_handling(self, test_settings):
         """Test main function handles exceptions."""
         with patch("src.__main__.settings", test_settings):

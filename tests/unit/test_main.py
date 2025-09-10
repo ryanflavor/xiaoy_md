@@ -234,6 +234,7 @@ class TestRunService:
 class TestMain:
     """Test the main entry point."""
 
+    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     @patch("src.__main__.asyncio.run")
     @patch("sys.exit")
@@ -255,6 +256,7 @@ class TestMain:
         mock_asyncio_run.assert_called_once()
         mock_exit.assert_called_once_with(0)
 
+    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     @patch("src.__main__.asyncio.run")
     @patch("sys.exit")
@@ -275,6 +277,7 @@ class TestMain:
         mock_asyncio_run.assert_called_once()
         mock_exit.assert_called_once_with(1)
 
+    @patch("src.__main__.run_service", return_value=None)
     @patch("src.__main__.setup_logging")
     def test_main_logging_setup_error(self, mock_setup_logging):
         """Test handling of logging setup errors.

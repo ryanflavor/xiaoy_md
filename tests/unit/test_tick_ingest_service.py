@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -16,7 +17,11 @@ class _FakeMarketData(MarketDataPort):
     def __init__(self) -> None:
         self.connected = False
         self._ticks: list[MarketTick] = [
-            MarketTick(symbol="rb2401", price=Decimal("1"), timestamp=datetime.utcnow())
+            MarketTick(
+                symbol="rb2401",
+                price=Decimal("1"),
+                timestamp=datetime.now(ZoneInfo("Asia/Shanghai")),
+            )
         ]
 
     async def connect(self) -> None:
