@@ -3,8 +3,9 @@
 Environment:
   MD_RUN_INGEST=1           Enable ingest
   CTP_GATEWAY_CONNECT       module:attr of live connector
-  CTP_SYMBOL                vt_symbol to subscribe
+  CTP_SYMBOL                vt_symbol to subscribe (used for initial routing readiness)
   MD_DURATION_SECONDS       Optional bounded runtime (0 = infinite)
+  NATS_URL/NATS_USER/NATS_PASSWORD respected via AppSettings
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ import os
 import signal
 from typing import TYPE_CHECKING, Any, cast
 
-from src.application.services import TickIngestService
+from src.application.services import MarketDataService
 from src.config import AppSettings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
+from src.infrastructure.nats_publisher import NATSPublisher
 
 
 def _load_connector_from_env() -> (
@@ -45,26 +47,59 @@ class _NoopPublisher:
         return None
 
 
+def _bind_on_tick(adapter: CTPGatewayAdapter, connector: object) -> None:
+    """Bind adapter.on_tick to live connector if setter is available.
+
+    Falls back to setting a known attribute on the connector function when needed.
+    """
+    import importlib as _importlib
+
+    with contextlib.suppress(Exception):
+        target = os.environ.get("CTP_GATEWAY_CONNECT")
+        if not target:
+            return
+        module_path = (
+            target.split(":", 1)[0] if ":" in target else target.rsplit(".", 1)[0]
+        )
+        mod = _importlib.import_module(module_path)
+        setter = getattr(mod, "set_on_tick", None)
+        if callable(setter):
+            setter(adapter.on_tick)
+        else:
+            cast(Any, connector)._on_tick = adapter.on_tick  # noqa: SLF001
+
+
+def _seed_contract_map(adapter: CTPGatewayAdapter, vt_symbol: str | None) -> None:
+    """Populate adapter contract map with vt/base symbol for initial readiness."""
+    if not vt_symbol:
+        return
+    adapter.symbol_contract_map[vt_symbol] = object()
+    if "." in vt_symbol:
+        base, _ex = vt_symbol.rsplit(".", 1)
+        adapter.symbol_contract_map[base] = object()
+
+
 async def _run() -> int:
     settings = AppSettings()
     connector = _load_connector_from_env()
     adapter = CTPGatewayAdapter(settings, gateway_connect=connector)
+    logger = logging.getLogger(__name__)
     # Prefer public API for binding on_tick, fallback to private attribute
-    with contextlib.suppress(Exception):
-        target = os.environ.get("CTP_GATEWAY_CONNECT")
-        if target:
-            module_path = (
-                target.split(":", 1)[0] if ":" in target else target.rsplit(".", 1)[0]
-            )
-            mod = importlib.import_module(module_path)
-            setter = getattr(mod, "set_on_tick", None)
-            if callable(setter):
-                setter(adapter.on_tick)
-            else:
-                cast(Any, connector)._on_tick = adapter.on_tick  # noqa: SLF001
+    _bind_on_tick(adapter, connector)
 
-    service = TickIngestService(adapter, _NoopPublisher())
-    await service.start()
+    vt_symbol = os.environ.get("CTP_SYMBOL")
+    _seed_contract_map(adapter, vt_symbol)
+
+    # Compose service graph: adapter + NATSPublisher via MarketDataService
+    publisher = NATSPublisher(settings)
+    service = MarketDataService(market_data_port=adapter, publisher_port=publisher)
+
+    # Connect components
+    await adapter.connect()
+    await publisher.connect()
+
+    # Start processing loop in background
+    proc_task = asyncio.create_task(service.process_market_data())
 
     stop = asyncio.Event()
 
@@ -85,7 +120,22 @@ async def _run() -> int:
     except TimeoutError:
         pass
     finally:
-        await service.stop()
+        # Graceful shutdown: stop processing, disconnect components
+        proc_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await proc_task
+        await adapter.disconnect()
+        await publisher.disconnect()
+        # Log publish stats for observability
+        with contextlib.suppress(Exception):
+            stats = publisher.get_connection_stats()
+            logger.info(
+                "live_ingest_shutdown",
+                extra={
+                    "published": stats.get("successful_publishes"),
+                    "failed": stats.get("failed_publishes"),
+                },
+            )
     return 0
 
 
