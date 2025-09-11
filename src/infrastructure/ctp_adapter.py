@@ -388,9 +388,25 @@ class CTPGatewayAdapter(MarketDataPort):
                 return Decimal(0)
             return Decimal(str(price))
 
+        # Derive vt_symbol when exchange information is available
+        base_symbol = getattr(vnpy_tick, "symbol", None) or ""
+        vt_symbol: str
+        ex_attr = getattr(vnpy_tick, "exchange", None)
+        vt_attr = getattr(vnpy_tick, "vt_symbol", None)
+        if isinstance(vt_attr, str) and vt_attr:
+            vt_symbol = vt_attr
+        elif ex_attr is not None:
+            ex_str = str(getattr(ex_attr, "value", ex_attr))
+            # Normalize Enum repr like 'Exchange.SHFE' → 'SHFE'
+            if ex_str.startswith("Exchange."):
+                ex_str = ex_str.split(".", 1)[1]
+            vt_symbol = f"{base_symbol}.{ex_str}" if base_symbol else ex_str
+        else:
+            vt_symbol = base_symbol
+
         # Map core fields
         return MarketTick(
-            symbol=vnpy_tick.symbol,
+            symbol=vt_symbol,
             price=adjust_price(vnpy_tick.last_price),
             volume=Decimal(str(vnpy_tick.volume)) if vnpy_tick.volume else None,
             timestamp=china_datetime,

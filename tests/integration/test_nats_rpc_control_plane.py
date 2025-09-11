@@ -12,6 +12,8 @@ import json
 import nats
 import pytest
 
+# Reuse container/app fixtures from the health-check integration module
+
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(120)]
 
 
