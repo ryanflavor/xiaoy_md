@@ -108,69 +108,6 @@ uv run pytest --cov=src
 # Run specific test categories
 uv run pytest -m unit        # Unit tests only
 uv run pytest -m integration # Integration tests only
-
-## LIVE Verification Guide
-
-The repository includes scripts to verify LIVE CTP ingestion and NATS publishing end‑to‑end. These are intended for local use with your real CTP credentials. Do not commit secrets.
-
-### 1) Install optional CTP extras
-
-```bash
-# Install vnpy/vnpy-ctp into your current uv env
-uv sync --extra ctp
-```
-
-If vnpy wheels are unavailable for Python 3.13 on your platform, use a Python 3.11 virtualenv dedicated to LIVE:
-
-```bash
-uv venv -p 3.11 .venv-ctp
-source .venv-ctp/bin/activate
-pip install "vnpy>=4.1.0" "vnpy-ctp>=6.7.7.2"
-```
-
-### 2) Configure .env with CTP_* and NATS_*
-
-Required (example names): `CTP_BROKER_ID`, `CTP_USER_ID`, `CTP_PASSWORD`, `CTP_MD_ADDRESS`, `CTP_TD_ADDRESS`, `CTP_APP_ID`, `CTP_AUTH_CODE`, `CTP_SYMBOL` (vt_symbol recommended, e.g., `rb2510.SHFE`), `CTP_GATEWAY_CONNECT=src.infrastructure.ctp_live_connector:live_gateway_connect`. For NATS with auth, set `NATS_USER` and `NATS_PASSWORD`.
-
-### 3) Quick LIVE checks
-
-- Connectivity smoke (CTP login/retry, no NATS):
-
-```bash
-uv run python scripts/ctp_connect_smoke.py --duration 20 --log-level INFO
-```
-
-- Bridge smoke (LIVE → on_tick → async consume):
-
-```bash
-DURATION_SECONDS=30 uv run python scripts/ctp_bridge_smoke.py
-```
-
-- One‑click LIVE → NATS verification (subscriber + ingest):
-
-```bash
-./scripts/live_ingest_verify.sh -d 30 -n nats://localhost:4222
-# optionally override symbol
-SYMBOL=rb2510.SHFE ./scripts/live_ingest_verify.sh -d 30
-```
-
-The script will:
-- Ensure NATS is running via `docker compose up -d nats`
-- Subscribe to `market.tick.>` (uses `NATS_USER/PASSWORD` if set)
-- Run ingest (`MD_RUN_INGEST=1`) for the specified duration
-- Print a short sample from subscriber and ingest logs
-
-Expected subjects are like `market.tick.SHFE.rb2510` and payload `symbol=rb2510.SHFE` with `+08:00` timestamps.
-
-### 4) Demo without LIVE (offline)
-
-Use the E2E demo to emit a vnpy‑like tick and verify NATS end‑to‑end without a real CTP connection:
-
-```bash
-uv run python scripts/demo_e2e_tick_to_nats.py
-```
-
-This launches a temporary NATS container, publishes one tick through the service, and prints the subject/payload.
 ```
 
 ### Architecture Validation
