@@ -58,10 +58,16 @@ class NATSRPCServer:
         if self._nc is not None:
             return
         self._nc = NATSClient()
-        await self._nc.connect(
-            servers=[self._settings.nats_url],
-            name=f"{self._settings.nats_client_id}-rpc",
-        )
+        options: dict[str, Any] = {
+            "servers": [self._settings.nats_url],
+            "name": f"{self._settings.nats_client_id}-rpc",
+        }
+        user = getattr(self._settings, "nats_user", None)
+        pwd = getattr(self._settings, "nats_password", None)
+        if user and pwd:
+            options["user"] = user
+            options["password"] = pwd
+        await self._nc.connect(**options)
 
         # Register handlers
         async def _contracts_handler(msg: Any) -> None:
@@ -142,8 +148,26 @@ class NATSRPCServer:
         try:
             from src.infrastructure import ctp_live_connector as live
 
+            # Parse optional timeout_s from request payload (defaults to 3.0s)
+            timeout_s = 3.0
+            try:
+                req = json.loads(_data.decode() or "{}")
+                t = float(req.get("timeout_s", timeout_s))
+                # clamp to 0.5..15s
+                t = max(t, 0.5)
+                t = min(t, 15.0)
+                timeout_s = t
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    "contracts_list_parse_timeout_error",
+                    exc_info=True,
+                    extra={"error": str(e)},
+                )
+
             if hasattr(live, "query_all_contracts"):
-                result: list[str] = await _maybe_await(live.query_all_contracts(1.0))
+                result: list[str] = await _maybe_await(
+                    live.query_all_contracts(timeout_s)
+                )
             else:
                 result = []
         except Exception:  # noqa: BLE001

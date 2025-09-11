@@ -281,6 +281,11 @@ single-line-exclusions = ["typing"]
     "N814",    # allow aliasing Client as NATS for test patching
     "BLE001",  # broad exception in retry wrapper (operational guard)
 ]
+"src/infrastructure/ctp_live_connector.py" = [
+    "PLR0912", # complexity allowed for integration glue
+    "PLR0915", # statements count relaxed for integration glue
+    "SIM105",  # use try/except where suppress isn't clearer for vendor calls
+]
 
 # Disable ruff-format since we use Black
 # [tool.ruff.format]  # Commented out to avoid conflict with Black
