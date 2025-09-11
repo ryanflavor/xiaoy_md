@@ -3,8 +3,9 @@
 Environment:
   MD_RUN_INGEST=1           Enable ingest
   CTP_GATEWAY_CONNECT       module:attr of live connector
-  CTP_SYMBOL                vt_symbol to subscribe
+  CTP_SYMBOL                vt_symbol to subscribe (used for initial routing readiness)
   MD_DURATION_SECONDS       Optional bounded runtime (0 = infinite)
+  NATS_URL/NATS_USER/NATS_PASSWORD respected via AppSettings
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ import os
 import signal
 from typing import TYPE_CHECKING, Any, cast
 
-from src.application.services import TickIngestService
+from src.application.services import MarketDataService
 from src.config import AppSettings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
+from src.infrastructure.nats_publisher import NATSPublisher
 
 
 def _load_connector_from_env() -> (
@@ -49,6 +51,7 @@ async def _run() -> int:
     settings = AppSettings()
     connector = _load_connector_from_env()
     adapter = CTPGatewayAdapter(settings, gateway_connect=connector)
+    logger = logging.getLogger(__name__)
     # Prefer public API for binding on_tick, fallback to private attribute
     with contextlib.suppress(Exception):
         target = os.environ.get("CTP_GATEWAY_CONNECT")
@@ -63,8 +66,25 @@ async def _run() -> int:
             else:
                 cast(Any, connector)._on_tick = adapter.on_tick  # noqa: SLF001
 
-    service = TickIngestService(adapter, _NoopPublisher())
-    await service.start()
+    # Seed symbol contract map for initial routing readiness if CTP_SYMBOL provided.
+    vt_symbol = os.environ.get("CTP_SYMBOL")
+    if vt_symbol:
+        # Accept both vt_symbol and base symbol to maximize compatibility
+        adapter.symbol_contract_map[vt_symbol] = object()
+        if "." in vt_symbol:
+            base, _ex = vt_symbol.rsplit(".", 1)
+            adapter.symbol_contract_map[base] = object()
+
+    # Compose service graph: adapter + NATSPublisher via MarketDataService
+    publisher = NATSPublisher(settings)
+    service = MarketDataService(market_data_port=adapter, publisher_port=publisher)
+
+    # Connect components
+    await adapter.connect()
+    await publisher.connect()
+
+    # Start processing loop in background
+    proc_task = asyncio.create_task(service.process_market_data())
 
     stop = asyncio.Event()
 
@@ -85,7 +105,24 @@ async def _run() -> int:
     except TimeoutError:
         pass
     finally:
-        await service.stop()
+        # Graceful shutdown: stop processing, disconnect components
+        proc_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await proc_task
+        await adapter.disconnect()
+        await publisher.disconnect()
+        # Log publish stats for observability
+        try:
+            stats = publisher.get_connection_stats()
+            logger.info(
+                "live_ingest_shutdown",
+                extra={
+                    "published": stats.get("successful_publishes"),
+                    "failed": stats.get("failed_publishes"),
+                },
+            )
+        except Exception:
+            logger.debug("publisher_stats_unavailable")
     return 0
 
 
