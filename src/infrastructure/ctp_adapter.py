@@ -97,6 +97,8 @@ class CTPGatewayAdapter(MarketDataPort):
         self._subs_by_id: dict[str, MarketDataSubscription] = {}
         self._sub_id_by_symbol: dict[str, str] = {}
         self._sub_seq = 0
+        # Story 2.4.3: cached vt_symbols for contracts.list RPC
+        self._contracts_vt: set[str] = set()
 
     async def connect(self) -> None:
         """Start the supervised worker thread."""
@@ -415,3 +417,27 @@ class CTPGatewayAdapter(MarketDataPort):
 
     async def _unsubscribe_live_hook(self, _symbol: str, _exchange: str) -> None:
         return None
+
+    # ---- Contracts cache management (Story 2.4.3) ----
+    async def update_contracts(self, contracts: list[str] | list[Any]) -> None:
+        """Update internal contract caches from a list of vt/base symbols.
+
+        Accepts:
+        - list[str]: each item may be a vt_symbol ("sym.EX") or base symbol ("sym").
+        - list[Any]: objects with string representation convertible to vt/base symbol.
+        """
+        items: list[str] = [str(c) for c in contracts]
+        for item in items:
+            if not item:
+                continue
+            key = item.strip()
+            # Update map for vt and base keys
+            if "." in key:
+                base, ex = key.rsplit(".", 1)
+                self.symbol_contract_map[key] = object()
+                if base:
+                    self.symbol_contract_map[base] = object()
+                # Track vt_symbol cache
+                self._contracts_vt.add(f"{base}.{ex}")
+            else:
+                self.symbol_contract_map[key] = object()

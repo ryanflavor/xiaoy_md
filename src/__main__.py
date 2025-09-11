@@ -1,6 +1,7 @@
 """Market Data Service entry point."""
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -17,7 +18,9 @@ except ImportError:  # pragma: no cover - fallback for older versions
 
 from src.application.services import MarketDataService
 from src.config import settings
+from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher, RetryConfig
+from src.infrastructure.rpc_nats import NATSRPCServer
 
 
 def setup_logging() -> None:
@@ -70,6 +73,8 @@ async def run_service() -> None:
         },
     )
 
+    rpc_server: NATSRPCServer | None = None
+
     try:
         # Initialize service components
         # Create NATS publisher with security configuration
@@ -85,8 +90,13 @@ async def run_service() -> None:
                 jitter=False,
             )
 
-        # Create service with NATS publisher
+        # Create adapter (for control-plane subscription handling)
+        adapter = CTPGatewayAdapter(settings)
+
+        # Create service with NATS publisher and attach adapter as market data port
         service = MarketDataService(publisher_port=nats_publisher)
+        # Attach port post-construction to preserve unit test expectations
+        service.market_data_port = adapter
 
         try:
             await service.initialize()
@@ -106,6 +116,10 @@ async def run_service() -> None:
 
         logger.info("Market Data Service started successfully")
 
+        # Start RPC control plane listeners
+        rpc_server = NATSRPCServer(settings, service, adapter)
+        await rpc_server.start()
+
         # Test-friendly fallback shutdown: when running under pytest, ensure
         # the process exits within a short window even if signals are blocked
         # by the environment. This keeps runtime tests deterministic.
@@ -123,6 +137,10 @@ async def run_service() -> None:
         logger.info("Shutting down Market Data Service...")
         if service:
             await service.shutdown()
+        # Stop RPC server and cleanup
+        if rpc_server is not None:
+            with contextlib.suppress(Exception):
+                await rpc_server.stop()
 
         # Remove signal handlers
         for sig in (signal.SIGINT, signal.SIGTERM):

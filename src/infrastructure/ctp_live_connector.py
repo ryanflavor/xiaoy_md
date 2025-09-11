@@ -26,6 +26,16 @@ def set_on_tick(callback: Any) -> None:
     setattr(live_gateway_connect, name, callback)
 
 
+def set_on_contracts(callback: Any) -> None:
+    """Public API to set contracts callback (one-shot aggregate).
+
+    When live gateway completes contract query aggregation, it should invoke
+    this callback with a list of vt_symbols.
+    """
+    name = "_on_contracts"
+    setattr(live_gateway_connect, name, callback)
+
+
 def _connect_components(setting: dict[str, object]) -> tuple[Any, Any, Any]:
     """Create EventEngine, MainEngine, and CTP gateway; return (ee, me, gw)."""
     try:
@@ -157,3 +167,17 @@ def live_gateway_connect(
 
         with contextlib.suppress(Exception):
             me.close()
+
+
+def query_all_contracts(_timeout_s: float = 1.0) -> list[str]:
+    """Trigger vn.py contract query and aggregate vt_symbols (best-effort).
+
+    Minimal placeholder to satisfy control plane in environments without vn.py.
+    When vn.py is available, this should initiate `ReqQryInstrument` and
+    accumulate results via `onRspQryInstrument`, invoking any registered
+    `_on_contracts` callback and returning the collected vt_symbols.
+
+    Current implementation returns an empty list to avoid hard dependency.
+    """
+    # Placeholder for non-live tests; real vn.py query wiring occurs in dedicated story
+    return []
