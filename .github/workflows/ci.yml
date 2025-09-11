@@ -241,6 +241,10 @@ jobs:
         run: |
           # Run integration tests against the containerized stack
           uv run pytest tests/integration/test_nats_health_check.py -v --tb=short -o addopts=""
+      - name: Run end-to-end market tick flow (no coverage)
+        run: |
+          # Run in-process E2E composition test against ephemeral NATS (no auth)
+          uv run pytest tests/integration/test_end_to_end_market_tick_flow.py -v --tb=short -o addopts=""
       - name: Run security tests (no coverage)
         run: |
           # Run basic authentication tests
