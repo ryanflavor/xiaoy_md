@@ -119,3 +119,38 @@ async def test_market_data_service_rate_limit_blocks_subscribe() -> None:
     svc.simulate_rate_limit_state("subscribe", svc.RATE_LIMIT_MAX_REQUESTS)
     with pytest.raises(RateLimitError):
         await svc.subscribe_to_symbol("rb2401")
+
+
+@pytest.mark.asyncio
+async def test_service_integration_with_ctp_adapter(ctp_settings=None) -> None:
+    """AC4: Verify MarketDataService integrates with CTPGatewayAdapter for subscribe.
+
+    Uses real adapter with no live connector; ensures normal interaction
+    without affecting other flows.
+    """
+    # Lazy import to avoid heavy dependencies at module import time
+    from src.config import AppSettings
+    from src.infrastructure.ctp_adapter import CTPGatewayAdapter
+
+    settings = ctp_settings or AppSettings(
+        app_name="test-service",
+        nats_client_id="test-client",
+        ctp_broker_id="9999",
+        ctp_user_id="u001",
+        ctp_password="secret-pass",  # pragma: allowlist secret (test fixture value)
+        ctp_md_address="127.0.0.1:5001",
+        ctp_td_address="tcp://127.0.0.1:5002",
+        ctp_app_id="appx",
+        ctp_auth_code="authy",  # pragma: allowlist secret (test fixture value)
+    )
+
+    adapter = CTPGatewayAdapter(settings)
+    svc = MarketDataService(market_data_port=adapter)
+
+    sub = await svc.subscribe_to_symbol("rb2401.SHFE")
+    assert sub.symbol == "rb2401"
+    assert sub.exchange == "SHFE"
+    assert sub.subscription_id
+
+    # Unsubscribe via service; should not raise
+    await svc.unsubscribe(sub.subscription_id)

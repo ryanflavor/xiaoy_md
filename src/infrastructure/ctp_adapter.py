@@ -93,6 +93,10 @@ class CTPGatewayAdapter(MarketDataPort):
         self.symbol_contract_map: dict[str, Any] = (
             {}
         )  # Will be populated by vnpy gateway
+        # Story 2.4.2: subscription state
+        self._subs_by_id: dict[str, MarketDataSubscription] = {}
+        self._sub_id_by_symbol: dict[str, str] = {}
+        self._sub_seq = 0
 
     async def connect(self) -> None:
         """Start the supervised worker thread."""
@@ -133,10 +137,90 @@ class CTPGatewayAdapter(MarketDataPort):
                 self._owns_executor = False
 
     async def subscribe(self, symbol: str) -> MarketDataSubscription:
-        raise NotImplementedError("subscribe() implemented in Story 2.2")
+        """Subscribe to a symbol; idempotent for the same symbol key.
+
+        - Generates unique subscription_id on first subscribe.
+        - Maintains bidirectional mappings for lookup.
+        - Prepares live hook (no-op for 2.4.2; wired in 2.4.3).
+        """
+        norm_symbol = (symbol or "").strip()
+        if "." in norm_symbol:
+            base_symbol, exchange = norm_symbol.rsplit(".", 1)
+        else:
+            base_symbol, exchange = norm_symbol, "UNKNOWN"
+
+        symbol_key = f"{base_symbol}.{exchange}"
+
+        # Idempotent behavior: return existing subscription for same symbol key
+        existing_id = self._sub_id_by_symbol.get(symbol_key)
+        if existing_id is not None:
+            sub = self._subs_by_id[existing_id]
+            logger.info(
+                "duplicate_subscription",
+                extra={
+                    "symbol": base_symbol,
+                    "exchange": exchange,
+                    "id": sub.subscription_id,
+                },
+            )
+            return sub
+
+        # Generate a unique subscription id
+        self._sub_seq += 1
+        sub_id = f"sub-{self._sub_seq}"
+
+        # Pydantic will validate symbol format via model
+        from src.domain.models import MarketDataSubscription
+
+        sub = MarketDataSubscription(
+            subscription_id=sub_id, symbol=base_symbol, exchange=exchange
+        )
+
+        # Record mappings
+        self._subs_by_id[sub_id] = sub
+        self._sub_id_by_symbol[symbol_key] = sub_id
+
+        # Live hook placeholder (no-op for now)
+        try:
+            await self._subscribe_live_hook(base_symbol, exchange)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "live_subscribe_hook_error",
+                exc_info=True,
+                extra={"symbol": base_symbol, "exchange": exchange},
+            )
+
+        logger.info(
+            "subscribed",
+            extra={"id": sub_id, "symbol": base_symbol, "exchange": exchange},
+        )
+        return sub
 
     async def unsubscribe(self, subscription_id: str) -> None:
-        raise NotImplementedError("unsubscribe() implemented in Story 2.2")
+        """Unsubscribe by ID; idempotent for unknown IDs.
+
+        Unknown IDs log a warning and return without error.
+        """
+        sub = self._subs_by_id.get(subscription_id)
+        if sub is None:
+            logger.warning("unknown_subscription_id", extra={"id": subscription_id})
+            return
+
+        symbol_key = f"{sub.symbol}.{sub.exchange}"
+        # Live hook placeholder (no-op for now)
+        try:
+            await self._unsubscribe_live_hook(sub.symbol, sub.exchange)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "live_unsubscribe_hook_error",
+                exc_info=True,
+                extra={"symbol": sub.symbol, "exchange": sub.exchange},
+            )
+
+        # Remove mappings
+        self._subs_by_id.pop(subscription_id, None)
+        self._sub_id_by_symbol.pop(symbol_key, None)
+        logger.info("unsubscribed", extra={"id": subscription_id})
 
     async def receive_ticks(self) -> AsyncIterator[MarketTick]:
         """Async generator yielding market ticks as they arrive."""
@@ -324,3 +408,10 @@ class CTPGatewayAdapter(MarketDataPort):
         import asyncio as _asyncio
 
         await _asyncio.sleep(seconds)
+
+    # ---- Live connector hook placeholders (wired in Story 2.4.3) ----
+    async def _subscribe_live_hook(self, _symbol: str, _exchange: str) -> None:
+        return None
+
+    async def _unsubscribe_live_hook(self, _symbol: str, _exchange: str) -> None:
+        return None

@@ -71,12 +71,62 @@ class TestAC1Contract:
         assert adapter.executor is None
 
     @pytest.mark.asyncio
-    async def test_unimplemented_methods_raise(self, ctp_settings: AppSettings):
+    async def test_subscribe_unsubscribe_available(self, ctp_settings: AppSettings):
+        """Story 2.4.2: subscribe/unsubscribe implemented and callable."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        with pytest.raises(NotImplementedError):
-            await adapter.subscribe("rb2401.SHFE")
-        with pytest.raises(NotImplementedError):
-            await adapter.unsubscribe("sub-1")
+        sub = await adapter.subscribe("rb2401.SHFE")
+        assert sub.symbol == "rb2401"
+        assert sub.exchange == "SHFE"
+        assert isinstance(sub.subscription_id, str)
+        assert sub.subscription_id != ""
+        # Should be idempotent for the same symbol
+        sub2 = await adapter.subscribe("rb2401.SHFE")
+        assert sub2.subscription_id == sub.subscription_id
+        # Unsubscribe should not raise
+        await adapter.unsubscribe(sub.subscription_id)
+        # Idempotent unknown unsubscribe logs warning but not raise
+        await adapter.unsubscribe(sub.subscription_id)
+
+
+class TestStory242SubscribeUnsubscribe:
+    """Unit tests for Story 2.4.2: adapter subscribe/unsubscribe behavior."""
+
+    @pytest.mark.asyncio
+    async def test_subscribe_success_and_idempotent(self, ctp_settings: AppSettings):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        sub1 = await adapter.subscribe("rb2401.SHFE")
+        assert sub1.symbol == "rb2401"
+        assert sub1.exchange == "SHFE"
+        assert sub1.subscription_id.startswith("sub-")
+
+        # Duplicate subscribe returns existing
+        sub2 = await adapter.subscribe("rb2401.SHFE")
+        assert sub2.subscription_id == sub1.subscription_id
+
+    @pytest.mark.asyncio
+    async def test_subscribe_plain_symbol_uses_unknown_exchange(
+        self, ctp_settings: AppSettings
+    ):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        sub = await adapter.subscribe("IF2312")
+        assert sub.symbol == "IF2312"
+        assert sub.exchange == "UNKNOWN"
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_unknown_is_idempotent(
+        self, ctp_settings: AppSettings, caplog
+    ):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        await adapter.unsubscribe("does-not-exist")
+        assert "unknown_subscription_id" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_invalid_symbol_raises(self, ctp_settings: AppSettings):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        with pytest.raises(Exception):
+            await adapter.subscribe("")
+        with pytest.raises(Exception):
+            await adapter.subscribe("!!bad!!")
 
 
 class TestAC2ThreadLifecycle:
