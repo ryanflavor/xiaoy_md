@@ -16,6 +16,8 @@ NATS_URL_ARG="${NATS_URL:-nats://localhost:4222}"
 SYMBOL="${SYMBOL:-}"
 CONNECTOR="${CTP_GATEWAY_CONNECT:-src.infrastructure.ctp_live_connector:live_gateway_connect}"
 START_NATS="${START_NATS:-1}"
+FORCE_ENV="${FORCE_ENV:-0}"
+PRINT_CONFIG="${PRINT_CONFIG:-0}"
 
 usage() {
   cat <<USAGE
@@ -27,8 +29,15 @@ Options:
   -s, --symbol <vt_symbol>  Override CTP_SYMBOL (e.g., rb2510.SHFE)
   -n, --nats-url <url>      NATS URL (default: ${NATS_URL_ARG})
   --no-nats                 Do not start NATS container automatically
+  --force-env               Force override current environment with values from .env
+  --print-config            Print masked CTP_*/NATS_* used by ingest and exit
   -h, --help                Show this help
 USAGE
+}
+
+mask() { # $1=value -> masked (keep first/last few chars)
+  local v="$1"; local n=${#v}
+  if (( n <= 4 )); then echo "***"; else echo "${v:0:2}***${v: -2}"; fi
 }
 
 load_env_keys() {
@@ -44,7 +53,7 @@ load_env_keys() {
     fi
     case "$key" in
       CTP_*|NATS_USER|NATS_PASSWORD|NATS_URL)
-        if [[ -z "${!key-}" ]]; then
+        if [[ "$FORCE_ENV" == "1" || -z "${!key-}" ]]; then
           export "$key=$val"
         fi
         ;;
@@ -61,6 +70,8 @@ while [[ $# -gt 0 ]]; do
     -s|--symbol) SYMBOL="$2"; shift 2;;
     -n|--nats-url) NATS_URL_ARG="$2"; shift 2;;
     --no-nats) START_NATS=0; shift;;
+    --force-env) FORCE_ENV=1; shift;;
+    --print-config) PRINT_CONFIG=1; shift;;
     -h|--help) usage; exit 0;;
     *) ARGS+=("$1"); shift;;
   esac
@@ -80,6 +91,22 @@ fi
 export CTP_GATEWAY_CONNECT="${CONNECTOR}"
 
 export NATS_URL="${NATS_URL_ARG}"
+
+if [[ "${PRINT_CONFIG}" == "1" ]]; then
+  echo "[start_live_ingest] Effective configuration:"
+  echo "  NATS_URL=${NATS_URL}"
+  echo "  NATS_USER=$(mask "${NATS_USER:-}")"
+  echo "  NATS_PASSWORD=$(mask "${NATS_PASSWORD:-}")"
+  echo "  CTP_BROKER_ID=${CTP_BROKER_ID:-}"
+  echo "  CTP_USER_ID=$(mask "${CTP_USER_ID:-}")"
+  echo "  CTP_MD_ADDRESS=${CTP_MD_ADDRESS:-}"
+  echo "  CTP_TD_ADDRESS=${CTP_TD_ADDRESS:-}"
+  echo "  CTP_APP_ID=$(mask "${CTP_APP_ID:-}")"
+  echo "  CTP_AUTH_CODE=$(mask "${CTP_AUTH_CODE:-}")"
+  echo "  CTP_SYMBOL=${CTP_SYMBOL}"
+  echo "  CTP_GATEWAY_CONNECT=${CTP_GATEWAY_CONNECT}"
+  exit 0
+fi
 
 if [[ "${START_NATS}" == "1" ]]; then
   echo "[start_live_ingest] Ensuring NATS is running..."
