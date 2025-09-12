@@ -15,7 +15,9 @@ import argparse
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 async def _subscribe(
@@ -59,15 +61,43 @@ async def _subscribe(
     return lines
 
 
+def _load_env_defaults() -> None:
+    """Best-effort load NATS_* from .env if not already set.
+
+    Checks CWD/.env and repo-root/.env (parent of scripts/).
+    """
+    if os.getenv("NATS_USER") or os.getenv("NATS_PASSWORD") or os.getenv("NATS_URL"):
+        return
+    candidates = [Path.cwd() / ".env", Path(__file__).resolve().parents[1] / ".env"]
+    for env_file in candidates:
+        if not env_file.exists():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            t = line.strip()
+            if not t or t.startswith("#") or "=" not in t:
+                continue
+            k, v = t.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k in {"NATS_USER", "NATS_PASSWORD", "NATS_URL"} and not os.getenv(k):
+                os.environ[k] = v
+
+
 def main(argv: list[str] | None = None) -> int:
+    _load_env_defaults()
     parser = argparse.ArgumentParser(
         description="Subscribe to live ticks from NATS and print a few messages."
     )
-    parser.add_argument(
-        "--nats-url",
-        default=os.getenv("NATS_URL", "nats://localhost:4222"),
-        help="NATS URL",
-    )
+    # Normalize default NATS URL: prefer localhost when .env points to docker hostname 'nats'
+    nats_url_env = os.getenv("NATS_URL", "nats://localhost:4222")
+    try:
+        pu = urlparse(nats_url_env)
+        if pu.hostname == "nats":
+            nats_url_env = "nats://localhost:4222"
+    except ValueError:
+        nats_url_env = "nats://localhost:4222"
+
+    parser.add_argument("--nats-url", default=nats_url_env, help="NATS URL")
     parser.add_argument(
         "--user", default=os.getenv("NATS_USER"), help="NATS username (optional)"
     )
