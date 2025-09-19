@@ -54,9 +54,9 @@ class TestMainIntegration:
                     mock_publisher_class.assert_called_once_with(test_settings)
 
                     # Verify service was created with NATS publisher
-                    mock_service_class.assert_called_once_with(
-                        publisher_port=mock_publisher
-                    )
+                    mock_service_class.assert_called_once()
+                    _, service_kwargs = mock_service_class.call_args
+                    assert service_kwargs["publisher_port"] is mock_publisher
 
                     # Verify service was initialized and shutdown
                     mock_service.initialize.assert_called_once()
