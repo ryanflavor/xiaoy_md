@@ -93,9 +93,10 @@ async def test_subject_and_payload_with_exchange_and_timezone_conversion() -> No
     # Subject naming must follow market.tick.{exchange}.{symbol}
     assert topic == "market.tick.CFFEX.IF2312"
 
-    # Payload must include exchange and preserve original symbol
+    # Payload must include exchange and vnpy vt_symbol
     assert payload["exchange"] == "CFFEX"
-    assert payload["symbol"] == "IF2312.CFFEX"
+    assert payload["symbol"] == "IF2312"
+    assert payload["vt_symbol"] == "IF2312.CFFEX"
 
     # Timestamp must be serialized with +08:00 offset (Asia/Shanghai)
     assert payload["timestamp"].endswith("+08:00")

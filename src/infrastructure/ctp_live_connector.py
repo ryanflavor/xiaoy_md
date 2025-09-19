@@ -8,6 +8,7 @@ Provides `live_gateway_connect(setting, should_shutdown)` that:
 
 from __future__ import annotations
 
+from collections import deque
 import contextlib
 import logging
 import os
@@ -75,8 +76,6 @@ def _connect_components(setting: dict[str, object]) -> tuple[Any, Any, Any]:
         raise RuntimeError from exc
 
     ee = _event_engine_cls()
-    with contextlib.suppress(Exception):
-        ee.start()
     me = _main_engine_cls(ee)
     me.add_gateway(_ctp_gateway_cls)
 
@@ -129,8 +128,28 @@ def _attach_forwarders(log: logging.Logger, ee: Any, gw: Any) -> None:
         log.exception("bridge_event_on_tick_attach_failed")
 
 
-def _subscribe_symbol(log: logging.Logger, ee: Any, me: Any, gw: Any) -> None:
-    """Subscribe to vt_symbol from env with brief MD login wait."""
+# In-process queue for cross-thread subscription requests from adapter
+_SUBSCRIBE_QUEUE: deque[str] = deque()
+_SEEN_SUBS: set[str] = set()
+
+
+def request_subscribe(vt_symbol: str) -> None:
+    """Enqueue a vt_symbol for live subscription by the connector loop.
+
+    Thread-safe and idempotent: duplicates are ignored.
+    """
+    vt = (vt_symbol or "").strip()
+    if not vt or "." not in vt:
+        return
+    # Avoid unbounded growth on duplicates
+    if vt in _SEEN_SUBS:
+        return
+    _SEEN_SUBS.add(vt)
+    _SUBSCRIBE_QUEUE.append(vt)
+
+
+def _subscribe_symbol_env(log: logging.Logger, ee: Any, me: Any, gw: Any) -> None:
+    """Subscribe to vt_symbol from env with brief MD login wait (one-time seed)."""
     vt = os.environ.get("CTP_SYMBOL")
     if not (vt and "." in vt):
         return
@@ -176,6 +195,42 @@ def _subscribe_symbol(log: logging.Logger, ee: Any, me: Any, gw: Any) -> None:
             log.exception("bridge_subscribe_failed", extra={"vt_symbol": vt})
 
 
+def _drain_subscribe_queue(log: logging.Logger, me: Any, gw: Any) -> None:
+    """Apply queued subscribe requests (from adapter control plane)."""
+    if not _SUBSCRIBE_QUEUE:
+        return
+    try:
+        _obj_mod = __import__(
+            "vnpy.trader.object", fromlist=["Exchange", "SubscribeRequest"]
+        )
+        exchange_cls = _obj_mod.Exchange
+        subscribe_req_cls = _obj_mod.SubscribeRequest
+    except Exception:  # noqa: BLE001
+        # Unable to process without vn.py objects
+        return
+
+    while _SUBSCRIBE_QUEUE:
+        vt = _SUBSCRIBE_QUEUE.popleft()
+        try:
+            sym, ex = vt.split(".", 1)
+            try:
+                ex_enum: Any = exchange_cls(ex)
+            except Exception:  # noqa: BLE001
+                ex_enum = ex
+            sub = subscribe_req_cls(symbol=sym, exchange=ex_enum)
+            try:
+                me.subscribe(sub, "CTP")
+                log.info("bridge_subscribed", extra={"vt_symbol": vt})
+            except Exception:  # noqa: BLE001
+                try:
+                    gw.subscribe(sub)
+                    log.info("bridge_subscribed_gw", extra={"vt_symbol": vt})
+                except Exception:
+                    log.exception("bridge_subscribe_failed", extra={"vt_symbol": vt})
+        except Exception:
+            log.exception("bridge_subscribe_request_invalid", extra={"vt_symbol": vt})
+
+
 def live_gateway_connect(
     setting: dict[str, object], should_shutdown: Callable[[], bool]
 ) -> None:
@@ -183,11 +238,13 @@ def live_gateway_connect(
     log = logging.getLogger(__name__)
     ee, me, gw = _connect_components(setting)
     _attach_forwarders(log, ee, gw)
-    _subscribe_symbol(log, ee, me, gw)
+    _subscribe_symbol_env(log, ee, me, gw)
 
     # Idle loop until shutdown
     try:
         while not should_shutdown():
+            # Drain cross-thread subscribe requests from adapter
+            _drain_subscribe_queue(log, me, gw)
             time.sleep(0.1)
     finally:
         import contextlib
@@ -219,9 +276,6 @@ def query_all_contracts(_timeout_s: float = 1.0) -> list[str]:
     ee = _event_engine_cls()
     me = _main_engine_cls(ee)
     me.add_gateway(_ctp_gateway_cls)
-    # Ensure event loop is running so that vn.py can dispatch events
-    with contextlib.suppress(Exception):
-        ee.start()
 
     # Accumulator for vt_symbols and simple progress flags
     vt_syms: set[str] = set()

@@ -274,6 +274,53 @@ docker-compose down
 docker-compose down -v
 ```
 
+### Live Mode (Ingest)
+
+Run the live ingest pipeline (CTP → Adapter → NATS). Configure via environment variables or Docker Compose live profile.
+
+- Required when ingesting live: `MD_RUN_INGEST=1`, `CTP_GATEWAY_CONNECT` (module:attr), and a target `CTP_SYMBOL` (vt_symbol like `rb9999.SHFE`).
+- Secrets and endpoints: `CTP_BROKER_ID`, `CTP_USER_ID`, `CTP_PASSWORD`, `CTP_MD_ADDRESS`, `CTP_TD_ADDRESS`, `CTP_APP_ID`, `CTP_AUTH_CODE`.
+- NATS connectivity: `NATS_URL` and optional `NATS_USER`/`NATS_PASSWORD`.
+- Control-plane throttling: override subscribe rate limiting during orchestration with `SUBSCRIBE_RATE_LIMIT_WINDOW_SECONDS` and `SUBSCRIBE_RATE_LIMIT_MAX_REQUESTS`.
+
+Examples:
+
+```bash
+# Local (uv) for a bounded run (60s)
+MD_RUN_INGEST=1 \
+CTP_GATEWAY_CONNECT=src.infrastructure.ctp_live_connector:live_gateway_connect \
+CTP_SYMBOL=rb9999.SHFE \
+NATS_URL=nats://localhost:4222 \
+MD_DURATION_SECONDS=60 \
+uv run python -m src.main
+
+# Using helper script (reads .env by default)
+./scripts/start_live_ingest.sh -d 60 -n nats://localhost:4222 -s rb9999.SHFE
+
+# Docker Compose live profile (recommended)
+cp .env.example .env                 # populate CTP_* and NATS_* (do not commit secrets)
+docker compose --profile live up -d market-data-live
+docker compose --profile live logs -f market-data-live
+
+# Contract discovery + bulk subscribe helper (records artifacts under logs/operations/)
+uv run python scripts/operations/full_feed_subscription.py --batch-size 500 --rate-limit-max 5000 --rate-limit-window 60
+```
+
+Resource limits (suggested for live):
+
+```bash
+export SERVICE_LIVE_CPU_LIMIT=2
+export SERVICE_LIVE_MEMORY_LIMIT=2G
+```
+
+Startup diagnostics: If a required variable is missing, startup logs a clear error like:
+
+```
+live_ingest_startup_error {"required_env": ["CTP_GATEWAY_CONNECT"], "configure_in": [".env", "docker-compose live profile", "shell environment"]}
+```
+
+Tip: Store secrets in an env file (e.g., `.env`) and reference it via Compose (`env_file:`). Do not commit real secrets.
+
 ### NATS Health Check
 
 The service implements a NATS health check responder:

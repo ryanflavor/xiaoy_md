@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.application.services import MarketDataService
+from src.application.services import MarketDataService, RateLimitConfig
 from src.domain.models import MarketDataSubscription
 
 
@@ -46,6 +46,19 @@ class TestMarketDataServiceRateLimit:
             publisher_port=mock_publisher_port,
             repository_port=None,
         )
+
+    def test_custom_rate_limit_configuration(
+        self, mock_market_data_port, mock_publisher_port
+    ) -> None:
+        """Service uses custom window/max overrides when provided."""
+        svc = MarketDataService(
+            market_data_port=mock_market_data_port,
+            publisher_port=mock_publisher_port,
+            repository_port=None,
+            rate_limits=RateLimitConfig(window_seconds=10.0, max_requests=5),
+        )
+        assert svc.RATE_LIMIT_WINDOW_SECONDS == 10.0
+        assert svc.RATE_LIMIT_MAX_REQUESTS == 5
 
     @pytest.mark.asyncio
     async def test_allows_requests_within_rate_limit(self, service):

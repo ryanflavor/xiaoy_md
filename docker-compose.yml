@@ -81,6 +81,49 @@ services:
           cpus: ${SERVICE_CPU_RESERVE:-0.5}
           memory: ${SERVICE_MEMORY_RESERVE:-512M}
 
+  # Live Ingest (optional) — only starts with --profile live
+  # Runs the live ingest composition entrypoint (python -m src.main)
+  market-data-live:
+    container_name: ${SERVICE_LIVE_CONTAINER_NAME:-market-data-live}
+    image: ${SERVICE_IMAGE:-market-data-service:local}
+    entrypoint: ["python", "-m", "src.main"]
+    environment:
+      <<: *common-env
+      # Enable live ingest mode and (optionally) bounded runtime
+      MD_RUN_INGEST: "1"
+      MD_DURATION_SECONDS: ${MD_DURATION_SECONDS:-0}
+      # Auto-switch NATS URL: inside Docker → nats://nats:4222, on host → nats://127.0.0.1:4222
+      LIVE_NATS_AUTOMODE: ${LIVE_NATS_AUTOMODE:-1}
+      # CTP live connector: module:attr form. Default uses built-in vn.py connector.
+      CTP_GATEWAY_CONNECT: ${CTP_GATEWAY_CONNECT:-src.infrastructure.ctp_live_connector:live_gateway_connect}
+      # Initial vt_symbol subscription seed for routing readiness (e.g. rb9999.SHFE)
+      CTP_SYMBOL: ${CTP_SYMBOL:-}
+      # NATS connectivity (auth optional)
+      NATS_URL: ${NATS_URL:-}
+      NATS_USER: ${NATS_USER:-}
+      NATS_PASSWORD: ${NATS_PASSWORD:-}
+    # Load secrets from env file (do not commit real secrets)
+    env_file:
+      - .env
+    depends_on:
+      - nats
+    healthcheck: *service-healthcheck
+    volumes:
+      - ${SOURCE_MOUNT:-./logs}:/app/logs
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    deploy:
+      resources:
+        limits:
+          # Suggested live limits; override via env if needed
+          cpus: ${SERVICE_LIVE_CPU_LIMIT:-2}
+          memory: ${SERVICE_LIVE_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: ${SERVICE_LIVE_CPU_RESERVE:-1}
+          memory: ${SERVICE_LIVE_MEMORY_RESERVE:-1G}
+    profiles: ["live"]
+
   # Monitoring - NATS Prometheus Exporter (optional)
   nats-exporter:
     image: natsio/prometheus-nats-exporter:${EXPORTER_VERSION:-latest}

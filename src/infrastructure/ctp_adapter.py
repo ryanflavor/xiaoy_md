@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 import logging
+import math
 import sys
 import threading
 import time
@@ -59,6 +62,98 @@ def normalize_address(addr: str) -> str:
     return f"tcp://{addr}"
 
 
+def _adjust_price(price: float) -> Decimal:
+    if price == MAX_FLOAT or price >= MAX_FLOAT:
+        return Decimal(0)
+    return Decimal(str(price))
+
+
+def _resolve_vt_symbol(vnpy_tick: Any, base_symbol: str) -> tuple[str, str | None]:
+    vt_attr = getattr(vnpy_tick, "vt_symbol", None)
+    if isinstance(vt_attr, str) and vt_attr:
+        exchange = vt_attr.rsplit(".", 1)[1] if "." in vt_attr else None
+        return vt_attr, exchange
+
+    ex_attr = getattr(vnpy_tick, "exchange", None)
+    return _symbol_from_exchange(base_symbol, ex_attr)
+
+
+def _symbol_from_exchange(base_symbol: str, ex_attr: Any) -> tuple[str, str | None]:
+    if ex_attr is None:
+        return base_symbol, None
+    raw_ex = getattr(ex_attr, "value", ex_attr)
+    if isinstance(raw_ex, Enum):
+        raw_ex = getattr(raw_ex, "value", raw_ex.name)
+    exchange_str = str(raw_ex)
+    if exchange_str.startswith("Exchange."):
+        exchange_str = exchange_str.split(".", 1)[1]
+    if not exchange_str or "<" in exchange_str or " " in exchange_str:
+        return base_symbol, None
+    vt_symbol = f"{base_symbol}.{exchange_str}" if base_symbol else exchange_str
+    return vt_symbol, exchange_str
+
+
+def _decimal_from_attr(vnpy_tick: Any, attr_name: str) -> Decimal | None:
+    val = getattr(vnpy_tick, attr_name, None)
+    if val is None:
+        return None
+    if val == MAX_FLOAT or (isinstance(val, float) and val >= MAX_FLOAT):
+        return Decimal(0)
+    return Decimal(str(val))
+
+
+def _normalize_attribute(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=CHINA_TZ)
+        return dt.astimezone(CHINA_TZ).isoformat()
+    if isinstance(value, Enum):
+        enum_val = getattr(value, "value", None)
+        return enum_val if isinstance(enum_val, str) else value.name
+    if isinstance(value, Decimal | float):
+        numeric = float(value)
+        if math.isnan(numeric) or numeric == MAX_FLOAT or numeric >= MAX_FLOAT:
+            return None
+        value = numeric
+    elif isinstance(value, int):
+        value = int(value)
+    return value
+
+
+def _build_raw_payload(
+    vnpy_tick: Any,
+    base_symbol: str,
+    vt_symbol: str,
+    normalized_exchange: str | None,
+    china_datetime: datetime,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in vars(vnpy_tick).items():
+        if not key.startswith("_"):
+            payload[key] = _normalize_attribute(value)
+
+    payload["symbol"] = base_symbol
+    payload["vt_symbol"] = vt_symbol
+    exchange_str = normalized_exchange or payload.get("exchange") or "UNKNOWN"
+    payload["exchange"] = exchange_str
+    iso_time = china_datetime.isoformat()
+    payload.setdefault("datetime", iso_time)
+    payload.setdefault("timestamp", iso_time)
+    payload.setdefault("date", china_datetime.strftime("%Y-%m-%d"))
+    payload.setdefault("time", china_datetime.strftime("%H:%M:%S.%f")[:-3])
+    payload.setdefault("source", payload.get("source", "ctp"))
+    return payload
+
+
+@dataclass(slots=True)
+class AdapterRuntimeOptions:
+    retry_policy: RetryPolicy | None = None
+    executor: ThreadPoolExecutor | None = None
+    sleep_fn: Callable[[float], None] = time.sleep
+    tick_queue_maxsize: int = 1_000
+
+
 class CTPGatewayAdapter(MarketDataPort):
     """Adapter that manages the vnpy CTP gateway lifecycle in a worker thread."""
 
@@ -69,25 +164,36 @@ class CTPGatewayAdapter(MarketDataPort):
             Callable[[dict[str, Any], Callable[[], bool]], None] | None
         ) = None,
         *,
-        retry_policy: RetryPolicy | None = None,
-        executor: ThreadPoolExecutor | None = None,
-        sleep_fn: Callable[[float], None] = time.sleep,
+        runtime_options: AdapterRuntimeOptions | None = None,
+        **legacy_options: Any,
     ) -> None:
         """Initialize adapter with settings and injectable hooks for testability."""
         self.settings = settings
-        self.retry_policy = retry_policy or RetryPolicy()
+        options = runtime_options or AdapterRuntimeOptions()
+        if legacy_options:
+            options = AdapterRuntimeOptions(
+                retry_policy=legacy_options.get("retry_policy", options.retry_policy),
+                executor=legacy_options.get("executor", options.executor),
+                sleep_fn=legacy_options.get("sleep_fn", options.sleep_fn),
+                tick_queue_maxsize=legacy_options.get(
+                    "tick_queue_maxsize", options.tick_queue_maxsize
+                ),
+            )
+        self.retry_policy = options.retry_policy or RetryPolicy()
         # Lazily create executor to avoid lingering threads in unit tests
-        self.executor: ThreadPoolExecutor | None = executor
-        self._owns_executor = executor is None
+        self.executor: ThreadPoolExecutor | None = options.executor
+        self._owns_executor = options.executor is None
         self._shutdown = threading.Event()
         self._future: Future[None] | None = None
-        self._sleep = sleep_fn
+        self._sleep = options.sleep_fn
         # gateway_connect(setting, should_shutdown) should run the blocking loop or raise on failure
         self._gateway_connect = gateway_connect or self._default_gateway_connect
         self._session_counter = 0
 
         # Story 2.2: Async bridge components
-        self._tick_queue: asyncio.Queue[MarketTick] = asyncio.Queue(maxsize=1000)
+        self._tick_queue: asyncio.Queue[MarketTick] = asyncio.Queue(
+            maxsize=int(options.tick_queue_maxsize or 10_000)
+        )
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._dropped_ticks = 0
         self.symbol_contract_map: dict[str, Any] = (
@@ -352,10 +458,16 @@ class CTPGatewayAdapter(MarketDataPort):
             else:
                 logger.warning("tick_dropped_no_loop")
         else:
+            qsize = self._tick_queue.qsize()
             self._dropped_ticks += 1
             logger.warning(
                 "tick_dropped",
-                extra={"count": self._dropped_ticks, "symbol": domain_tick.symbol},
+                extra={
+                    "count": self._dropped_ticks,
+                    "symbol": domain_tick.symbol,
+                    "queue_maxsize": self._tick_queue.maxsize,
+                    "queue_size": qsize,
+                },
             )
 
     def _translate_vnpy_tick(self, vnpy_tick: Any) -> MarketTick:
@@ -370,56 +482,42 @@ class CTPGatewayAdapter(MarketDataPort):
         """
         from src.domain.models import MarketTick
 
-        # Handle timezone normalization to China timezone
         tick_datetime = vnpy_tick.datetime
         if tick_datetime.tzinfo is None:
-            # Assume China timezone if not specified
             tick_datetime = tick_datetime.replace(tzinfo=CHINA_TZ)
         elif tick_datetime.tzinfo != CHINA_TZ:
-            # Convert to China timezone if different
             tick_datetime = tick_datetime.astimezone(CHINA_TZ)
 
-        # Keep timestamp in China timezone (project-wide convention)
         china_datetime = tick_datetime
-
-        # Handle MAX_FLOAT adjustment for prices
-        def adjust_price(price: float) -> Decimal:
-            if price == MAX_FLOAT or price >= MAX_FLOAT:
-                return Decimal(0)
-            return Decimal(str(price))
-
-        # Derive vt_symbol when exchange information is available
         base_symbol = getattr(vnpy_tick, "symbol", None) or ""
-        vt_symbol: str
-        ex_attr = getattr(vnpy_tick, "exchange", None)
-        vt_attr = getattr(vnpy_tick, "vt_symbol", None)
-        if isinstance(vt_attr, str) and vt_attr:
-            vt_symbol = vt_attr
-        elif ex_attr is not None:
-            ex_str = str(getattr(ex_attr, "value", ex_attr))
-            # Normalize Enum repr like 'Exchange.SHFE' → 'SHFE'
-            if ex_str.startswith("Exchange."):
-                ex_str = ex_str.split(".", 1)[1]
-            vt_symbol = f"{base_symbol}.{ex_str}" if base_symbol else ex_str
-        else:
-            vt_symbol = base_symbol
+        vt_symbol, normalized_exchange = _resolve_vt_symbol(vnpy_tick, base_symbol)
+        raw_payload = _build_raw_payload(
+            vnpy_tick, base_symbol, vt_symbol, normalized_exchange, china_datetime
+        )
 
-        # Map core fields
+        last_price_decimal = _adjust_price(getattr(vnpy_tick, "last_price", 0.0))
+        bid_decimal = _decimal_from_attr(vnpy_tick, "bid_price_1")
+        ask_decimal = _decimal_from_attr(vnpy_tick, "ask_price_1")
+        volume_val = getattr(vnpy_tick, "volume", None)
+        volume_decimal = Decimal(str(volume_val)) if volume_val else None
+
+        if raw_payload.get("last_price") is None:
+            raw_payload["last_price"] = float(last_price_decimal)
+        if volume_decimal is not None and raw_payload.get("volume") is None:
+            raw_payload["volume"] = float(volume_decimal)
+        if bid_decimal is not None and raw_payload.get("bid_price_1") is None:
+            raw_payload["bid_price_1"] = float(bid_decimal)
+        if ask_decimal is not None and raw_payload.get("ask_price_1") is None:
+            raw_payload["ask_price_1"] = float(ask_decimal)
+
         return MarketTick(
             symbol=vt_symbol,
-            price=adjust_price(vnpy_tick.last_price),
-            volume=Decimal(str(vnpy_tick.volume)) if vnpy_tick.volume else None,
+            price=last_price_decimal,
+            volume=volume_decimal,
             timestamp=china_datetime,
-            bid=(
-                adjust_price(getattr(vnpy_tick, "bid_price_1", 0))
-                if getattr(vnpy_tick, "bid_price_1", None) is not None
-                else None
-            ),
-            ask=(
-                adjust_price(getattr(vnpy_tick, "ask_price_1", 0))
-                if getattr(vnpy_tick, "ask_price_1", None) is not None
-                else None
-            ),
+            bid=bid_decimal,
+            ask=ask_decimal,
+            vnpy=raw_payload,
         )
 
     async def _async_sleep(self, seconds: float) -> None:
@@ -427,9 +525,44 @@ class CTPGatewayAdapter(MarketDataPort):
 
         await _asyncio.sleep(seconds)
 
+    # Expose dropped tick counter for observability (Story 2.4.4)
+    @property
+    def dropped_ticks(self) -> int:
+        return int(self._dropped_ticks)
+
+    @property
+    def tick_queue_size(self) -> int:
+        try:
+            return int(self._tick_queue.qsize())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @property
+    def tick_queue_capacity(self) -> int:
+        try:
+            return int(self._tick_queue.maxsize)
+        except Exception:  # noqa: BLE001
+            return 0
+
     # ---- Live connector hook placeholders (wired in Story 2.4.3) ----
     async def _subscribe_live_hook(self, _symbol: str, _exchange: str) -> None:
-        return None
+        # Bridge to live connector to perform real gateway subscription
+        vt = f"{(_symbol or '').strip()}.{(_exchange or '').strip()}".strip(".")
+        if not vt or "." not in vt:
+            return
+        try:
+            from src.infrastructure import ctp_live_connector as live
+
+            if hasattr(live, "request_subscribe"):
+                live.request_subscribe(vt)
+            else:
+                logger.debug(
+                    "live_subscribe_bridge_unavailable", extra={"vt_symbol": vt}
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "live_subscribe_bridge_error", exc_info=True, extra={"vt_symbol": vt}
+            )
 
     async def _unsubscribe_live_hook(self, _symbol: str, _exchange: str) -> None:
         return None

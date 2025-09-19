@@ -59,6 +59,16 @@ class AppSettings(BaseSettings):
         default="json", description="Serialization strategy for payloads (json|pickle)"
     )
 
+    # Rate limiting configuration for control plane subscribe operations
+    subscribe_rate_limit_window_seconds: float = Field(
+        default=60.0,
+        description="Sliding window in seconds for subscribe rate limiting",
+    )
+    subscribe_rate_limit_max_requests: int = Field(
+        default=50,
+        description="Maximum subscribe operations allowed per rate limit window",
+    )
+
     # CTP credentials and endpoints
     ctp_broker_id: str | None = Field(default=None, description="CTP broker ID")
     ctp_user_id: str | None = Field(default=None, description="CTP user ID")

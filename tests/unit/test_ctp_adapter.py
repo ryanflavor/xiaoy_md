@@ -389,6 +389,11 @@ class TestStory22AC2AsyncBridge:
         assert result.volume == Decimal("1000")
         assert result.bid == Decimal("4499.0")
         assert result.ask == Decimal("4501.0")
+        assert result.vnpy["vt_symbol"] == "rb2401"
+        assert result.vnpy["last_price"] == 4500.0
+        assert result.vnpy["bid_price_1"] == 4499.0
+        assert result.vnpy["ask_price_1"] == 4501.0
+        assert result.vnpy["exchange"] == "UNKNOWN"
 
     @pytest.mark.asyncio
     async def test_timezone_normalization_to_china(self, ctp_settings: AppSettings):
@@ -412,6 +417,7 @@ class TestStory22AC2AsyncBridge:
         expected_china = china_time.astimezone(CHINA_TZ)
         assert result.timestamp == expected_china
         assert result.timestamp.tzinfo == CHINA_TZ
+        assert result.vnpy["datetime"].endswith("+08:00")
 
     @pytest.mark.asyncio
     async def test_dst_boundary_timezone_conversion(self, ctp_settings: AppSettings):
@@ -432,6 +438,7 @@ class TestStory22AC2AsyncBridge:
         result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
         expected_china = summer_time.astimezone(CHINA_TZ)
         assert result.timestamp == expected_china
+        assert result.vnpy["datetime"].endswith("+08:00")
 
     @pytest.mark.asyncio
     async def test_max_float_to_zero_conversion(self, ctp_settings: AppSettings):
@@ -451,6 +458,9 @@ class TestStory22AC2AsyncBridge:
         assert result.price == Decimal("0")
         assert result.bid == Decimal("0")
         assert result.ask == Decimal("4501.0")
+        assert result.vnpy["last_price"] == 0
+        assert result.vnpy["bid_price_1"] == 0
+        assert result.vnpy["ask_price_1"] == 4501.0
 
     @pytest.mark.asyncio
     async def test_run_coroutine_threadsafe_with_valid_loop(

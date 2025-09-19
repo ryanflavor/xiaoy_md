@@ -19,8 +19,10 @@ def test_load_connector_from_env_missing_raises(
     monkeypatch.delenv("CTP_GATEWAY_CONNECT", raising=False)
     name = "_load_" + "connector_from_env"
     func = getattr(ingest_main, name)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc:
         func()
+    # Error message should reference the missing variable for readability
+    assert "CTP_GATEWAY_CONNECT" in str(exc.value)
 
 
 @pytest.mark.asyncio
