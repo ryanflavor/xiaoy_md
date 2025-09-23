@@ -16,7 +16,6 @@ from typing import Any
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
-from pydantic import SecretStr
 import pytest
 
 from src.config import AppSettings
@@ -32,21 +31,24 @@ from src.infrastructure.ctp_adapter import (
 
 
 @pytest.fixture
-def ctp_settings() -> AppSettings:
+def ctp_settings(monkeypatch: pytest.MonkeyPatch) -> AppSettings:
     """Create test settings including CTP credentials and endpoints."""
-    data = {
-        "app_name": "test-service",
-        "nats_client_id": "test-client",
-        "ctp_broker_id": "9999",
-        "ctp_user_id": "u001",
-        "ctp_password": SecretStr("secret-pass"),  # pragma: allowlist secret
-        "ctp_md_address": "127.0.0.1:5001",
-        "ctp_td_address": "tcp://127.0.0.1:5002",
-        "ctp_app_id": "appx",
-        "ctp_auth_code": SecretStr("authy"),
-        "ctp_route_selector": "primary",
+    env_values = {
+        "CTP_BROKER_ID": "9999",
+        "CTP_USER_ID": "u001",
+        "CTP_PASSWORD": "secret-pass",  # pragma: allowlist secret
+        "CTP_MD_ADDRESS": "127.0.0.1:5001",
+        "CTP_TD_ADDRESS": "tcp://127.0.0.1:5002",
+        "CTP_APP_ID": "appx",
+        "CTP_AUTH_CODE": "authy",  # pragma: allowlist secret
+        "CTP_ROUTE_SELECTOR": "primary",
+        "NATS_CLIENT_ID": "test-client",
+        "APP_NAME": "test-service",
     }
-    return AppSettings.model_validate(data, context={"_env_file": None})
+    for key, value in env_values.items():
+        monkeypatch.setenv(key, value)
+
+    return AppSettings.model_validate({}, context={"_env_file": None})
 
 
 class FakeExecutor:
