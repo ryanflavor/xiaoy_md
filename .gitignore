@@ -218,3 +218,11 @@ temp/
 # BMAD (local only)
 .bmad-core/
 .bmad-*/
+
+# Front-end console artifacts
+ui/operations-console/node_modules/
+ui/operations-console/dist/
+ui/operations-console/.playwright/
+ui/operations-console/playwright-report/
+ui/operations-console/test-results/
+ui/operations-console/.vite/
