@@ -13,7 +13,8 @@ architecture:
   architectureVersion: v4
   architectureSharded: true
   architectureShardedLocation: docs/architecture
-customTechnicalDocuments: null
+customTechnicalDocuments:
+  - docs/architecture/observability-and-ops.md
 devLoadAlwaysFiles:
   - docs/architecture/coding-standards.md
   - docs/architecture/tech-stack.md

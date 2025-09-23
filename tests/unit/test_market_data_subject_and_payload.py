@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.application.services import MarketDataService
+from src.application.services import MarketDataService, ServiceDependencies
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
@@ -82,7 +82,11 @@ async def test_subject_and_payload_with_exchange_and_timezone_conversion() -> No
     md = _MD(symbol="IF2312.CFFEX", tz="UTC")
     pub = _Pub()
     svc = MarketDataService(
-        market_data_port=md, publisher_port=pub, repository_port=_Repo()
+        ports=ServiceDependencies(
+            market_data=md,
+            publisher=pub,
+            repository=_Repo(),
+        )
     )
 
     await svc.process_market_data()
@@ -93,9 +97,10 @@ async def test_subject_and_payload_with_exchange_and_timezone_conversion() -> No
     # Subject naming must follow market.tick.{exchange}.{symbol}
     assert topic == "market.tick.CFFEX.IF2312"
 
-    # Payload must include exchange and preserve original symbol
+    # Payload must include exchange and vnpy vt_symbol
     assert payload["exchange"] == "CFFEX"
-    assert payload["symbol"] == "IF2312.CFFEX"
+    assert payload["symbol"] == "IF2312"
+    assert payload["vt_symbol"] == "IF2312.CFFEX"
 
     # Timestamp must be serialized with +08:00 offset (Asia/Shanghai)
     assert payload["timestamp"].endswith("+08:00")

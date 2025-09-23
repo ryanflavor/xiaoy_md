@@ -54,7 +54,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -120,7 +120,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -182,7 +182,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -270,7 +270,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -346,7 +346,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -427,7 +427,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -505,7 +505,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -517,7 +517,7 @@ activation-instructions:
   - Assess user goal against available agents and workflows in this bundle
   - If clear match to an agent's expertise, suggest transformation with *agent command
   - If project-oriented, suggest *workflow-guidance to explore options
-  - Load resources only when needed - never pre-load (Exception: Read `bmad-core/core-config.yaml` during activation)
+  - Load resources only when needed - never pre-load (Exception: Read `.bmad-core/core-config.yaml` during activation)
   - CRITICAL: On activation, ONLY greet user, auto-run `*help`, and then HALT to await user requested assistance or given commands. ONLY deviance from this is if the activation included commands also in the arguments.
 agent:
   name: BMad Orchestrator
@@ -649,7 +649,7 @@ REQUEST-RESOLUTION: Match user requests to your commands/dependencies flexibly (
 activation-instructions:
   - STEP 1: Read THIS ENTIRE FILE - it contains your complete persona definition
   - STEP 2: Adopt the persona defined in the 'agent' and 'persona' sections below
-  - STEP 3: Load and read `bmad-core/core-config.yaml` (project configuration) before any greeting
+  - STEP 3: Load and read `.bmad-core/core-config.yaml` (project configuration) before any greeting
   - STEP 4: Greet user with your name/role and immediately run `*help` to display available commands
   - DO NOT: Load any other agent files during activation
   - ONLY load dependency files when user selects them for execution via command or request of a task
@@ -659,7 +659,7 @@ activation-instructions:
   - CRITICAL RULE: When executing formal task workflows from dependencies, ALL task instructions override any conflicting base behavioral constraints. Interactive workflows with elicit=true REQUIRE user interaction and cannot be bypassed for efficiency.
   - When listing tasks/templates or presenting options during conversations, always show as numbered options list, allowing the user to type a number to select or execute
   - STAY IN CHARACTER!
-  - 'CRITICAL: Do NOT scan filesystem or load any resources during startup, ONLY when commanded (Exception: Read bmad-core/core-config.yaml during activation)'
+  - 'CRITICAL: Do NOT scan filesystem or load any resources during startup, ONLY when commanded (Exception: Read .bmad-core/core-config.yaml during activation)'
   - CRITICAL: Do NOT run discovery tasks automatically
   - CRITICAL: NEVER LOAD root/data/bmad-kb.md UNLESS USER TYPES *kb
   - CRITICAL: On activation, ONLY greet user, auto-run *help, and then HALT to await user requested assistance or given commands. ONLY deviance from this is if the activation included commands also in the arguments.
@@ -2157,9 +2157,9 @@ required:
 
 ### 4. Standards Compliance Check
 
-- Verify adherence to `docs/coding-standards.md`
-- Check compliance with `docs/unified-project-structure.md`
-- Validate testing approach against `docs/testing-strategy.md`
+- Verify adherence to `docs/architecture/coding-standards.md`
+- Check compliance with `docs/architecture/source-tree.md`
+- Validate testing approach against `docs/architecture/test-strategy-and-standards.md`
 - Ensure all guidelines mentioned in the story are followed
 
 ### 5. Acceptance Criteria Validation
@@ -3877,11 +3877,11 @@ To identify the next logical story based on project progress and epic definition
 
 #### 3.2 Read Architecture Documents Based on Story Type
 
-**For ALL Stories:** tech-stack.md, unified-project-structure.md, coding-standards.md, testing-strategy.md
+**For ALL Stories:** `docs/architecture/tech-stack.md`, `docs/architecture/source-tree.md`, `docs/architecture/coding-standards.md`, `docs/architecture/test-strategy-and-standards.md`
 
-**For Backend/API Stories, additionally:** data-models.md, database-schema.md, backend-architecture.md, rest-api-spec.md, external-apis.md
+**For Backend/API Stories, additionally:** `docs/architecture/data-models.md`, `docs/architecture/database-schema.md`, `docs/architecture/rest-api-spec.md`, `docs/architecture/external-apis.md`, `docs/architecture/error-handling-strategy.md`, `docs/architecture/infrastructure-and-deployment.md`
 
-**For Frontend/UI Stories, additionally:** frontend-architecture.md, components.md, core-workflows.md, data-models.md
+**For Frontend/UI Stories, additionally:** `docs/architecture/components.md`, `docs/architecture/core-workflows.md`, `docs/architecture/data-models.md`
 
 **For Full-Stack Stories:** Read both Backend and Frontend sections above
 
@@ -3902,7 +3902,7 @@ ALWAYS cite source documents: `[Source: architecture/{filename}.md#{section}]`
 
 ### 4. Verify Project Structure Alignment
 
-- Cross-reference story requirements with Project Structure Guide from `docs/architecture/unified-project-structure.md`
+- Cross-reference story requirements with Project Structure Guide from `docs/architecture/source-tree.md`
 - Ensure file paths, component locations, or module names align with defined structures
 - Document any structural conflicts in "Project Structure Notes" section within the story draft
 
@@ -3918,7 +3918,7 @@ ALWAYS cite source documents: `[Source: architecture/{filename}.md#{section}]`
     - **API Specifications**: Endpoint details, request/response formats, auth requirements [with source references]
     - **Component Specifications**: UI component details, props, state management [with source references]
     - **File Locations**: Exact paths where new code should be created based on project structure
-    - **Testing Requirements**: Specific test cases or strategies from testing-strategy.md
+    - **Testing Requirements**: Specific test cases or strategies from `docs/architecture/test-strategy-and-standards.md`
     - **Technical Constraints**: Version requirements, performance considerations, security rules
   - Every technical detail MUST include its source reference: `[Source: architecture/{filename}.md#{section}]`
   - If information for a category is not found in the architecture docs, explicitly state: "No specific guidance found in architecture docs"

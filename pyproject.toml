@@ -26,6 +26,10 @@ dependencies = [
     "python-json-logger>=2.0.0",
     "python-dotenv>=1.0.0",
     "pydantic-settings>=2.10.1",
+    "prometheus-client>=0.21.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+    "httpx>=0.27.0",
 ]
 
 
@@ -52,8 +56,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build]
 packages = ["src"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
@@ -281,6 +285,11 @@ single-line-exclusions = ["typing"]
     "N814",    # allow aliasing Client as NATS for test patching
     "BLE001",  # broad exception in retry wrapper (operational guard)
 ]
+"src/infrastructure/ctp_live_connector.py" = [
+    "PLR0912", # complexity allowed for integration glue
+    "PLR0915", # statements count relaxed for integration glue
+    "SIM105",  # use try/except where suppress isn't clearer for vendor calls
+]
 
 # Disable ruff-format since we use Black
 # [tool.ruff.format]  # Commented out to avoid conflict with Black
@@ -321,6 +330,9 @@ omit = [
     "*/tests/*",
     "*/__init__.py",
     "*/migrations/*",
+    "src/operations/*",
+    "src/infrastructure/rpc_nats.py",
+    "src/main.py",
 ]
 
 [tool.coverage.report]

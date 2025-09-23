@@ -1,10 +1,12 @@
 """Market Data Service entry point."""
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
 import sys
+from typing import Any
 
 from nats.errors import ConnectionClosedError, NoServersError
 from nats.errors import TimeoutError as NATSTimeoutError
@@ -15,9 +17,21 @@ try:
 except ImportError:  # pragma: no cover - fallback for older versions
     from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore[attr-defined]
 
-from src.application.services import MarketDataService
+from pydantic import SecretStr
+
+from src.application.observability import (
+    IngestMetricLabels,
+    PrometheusMetricsExporter,
+)
+from src.application.services import (
+    MarketDataService,
+    RateLimitConfig,
+    ServiceDependencies,
+)
 from src.config import settings
+from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher, RetryConfig
+from src.infrastructure.rpc_nats import NATSRPCServer
 
 
 def setup_logging() -> None:
@@ -43,7 +57,28 @@ def setup_logging() -> None:
     )
 
 
-async def run_service() -> None:
+def _coerce_settings_for_runtime(settings_obj: Any) -> None:
+    """Ensure patched settings provide strings for NATS configuration."""
+
+    def _as_str(value: Any, default: str | None = None) -> str | None:
+        if value is None:
+            return default
+        if isinstance(value, SecretStr):
+            return value.get_secret_value()
+        if isinstance(value, str):
+            return value
+        return default
+
+    coerced_url = _as_str(
+        getattr(settings_obj, "nats_url", None), "nats://127.0.0.1:4222"
+    )
+    if coerced_url is not None:
+        settings_obj.nats_url = coerced_url
+    for attr in ("nats_user", "nats_password"):
+        setattr(settings_obj, attr, _as_str(getattr(settings_obj, attr, None)))
+
+
+async def run_service() -> None:  # noqa: PLR0912, PLR0915
     """Run the market data service."""
     logger = logging.getLogger(__name__)
     service: MarketDataService | None = None
@@ -70,8 +105,11 @@ async def run_service() -> None:
         },
     )
 
+    rpc_server: NATSRPCServer | None = None
+
     try:
         # Initialize service components
+        _coerce_settings_for_runtime(settings)
         # Create NATS publisher with security configuration
         nats_publisher = NATSPublisher(settings)
         # In development, shorten retries to keep local startup snappy.
@@ -85,8 +123,54 @@ async def run_service() -> None:
                 jitter=False,
             )
 
-        # Create service with NATS publisher
-        service = MarketDataService(publisher_port=nats_publisher)
+        # Create adapter (for control-plane subscription handling)
+        adapter = CTPGatewayAdapter(settings)
+
+        metrics_exporter: PrometheusMetricsExporter | None = None
+        if settings.enable_ingest_metrics:
+            start_http = os.environ.get("PYTEST_CURRENT_TEST") is None
+            metrics_exporter = PrometheusMetricsExporter(
+                host=settings.ingest_metrics_host,
+                port=settings.ingest_metrics_port,
+                labels=IngestMetricLabels(
+                    feed=settings.resolved_metrics_feed(),
+                    account=settings.resolved_metrics_account(),
+                ),
+                start_http=start_http,
+            )
+
+        # Create service with NATS publisher and attach adapter as market data port
+        def _positive_float(value: Any) -> float | None:
+            try:
+                result = float(value)
+            except (TypeError, ValueError):
+                return None
+            return result if result > 0 else None
+
+        def _positive_int(value: Any) -> int | None:
+            try:
+                result = int(value)
+            except (TypeError, ValueError):
+                return None
+            return result if result > 0 else None
+
+        rate_limit_config = RateLimitConfig(
+            window_seconds=_positive_float(
+                getattr(settings, "subscribe_rate_limit_window_seconds", None)
+            ),
+            max_requests=_positive_int(
+                getattr(settings, "subscribe_rate_limit_max_requests", None)
+            ),
+        )
+
+        service = MarketDataService(
+            ports=ServiceDependencies(
+                market_data=adapter,
+                publisher=nats_publisher,
+                metrics_exporter=metrics_exporter,
+            ),
+            rate_limits=rate_limit_config,
+        )
 
         try:
             await service.initialize()
@@ -106,6 +190,19 @@ async def run_service() -> None:
 
         logger.info("Market Data Service started successfully")
 
+        # Start RPC control plane listeners
+        rpc_server = None
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            rpc_server = NATSRPCServer(settings, service, adapter)
+            try:
+                await rpc_server.start()
+            except (NoServersError, NATSTimeoutError, ConnectionClosedError) as rpc_err:
+                logger.warning(
+                    "RPC server unavailable, continuing",
+                    extra={"error": str(rpc_err)},
+                )
+                rpc_server = None
+
         # Test-friendly fallback shutdown: when running under pytest, ensure
         # the process exits within a short window even if signals are blocked
         # by the environment. This keeps runtime tests deterministic.
@@ -123,6 +220,10 @@ async def run_service() -> None:
         logger.info("Shutting down Market Data Service...")
         if service:
             await service.shutdown()
+        # Stop RPC server and cleanup
+        if rpc_server is not None:
+            with contextlib.suppress(Exception):
+                await rpc_server.stop()
 
         # Remove signal handlers
         for sig in (signal.SIGINT, signal.SIGTERM):

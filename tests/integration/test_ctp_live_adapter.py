@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 
@@ -85,3 +87,12 @@ async def test_ctp_live_tick_flow() -> None:
         await adapter.disconnect()
 
     assert received is not None
+
+    # AC3: On success, write/update gate file with status and timestamp
+    # Anchor to repo root to avoid cwd differences in runners
+    repo_root = Path(__file__).resolve().parents[2]
+    gate_path = repo_root / "docs/qa/gates/2.4.7-live-smoke.yml"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).isoformat()
+    content = f'status: PASS\ntimestamp: "{timestamp}"\n'
+    gate_path.write_text(content, encoding="utf-8")

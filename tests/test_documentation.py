@@ -1,5 +1,6 @@
 """Tests for documentation completeness and accuracy."""
 
+import json
 from pathlib import Path
 import re
 
@@ -259,3 +260,48 @@ class TestScriptsDocumentation:
             "check_architecture.py" in content
             or "architecture validation" in content.lower()
         ), "README should mention architecture validation script"
+
+
+class TestMonitoringArtifacts:
+    """Validate monitoring configuration assets."""
+
+    def test_grafana_dashboard_structure(self):
+        """Grafana template should contain required panels and annotation wiring."""
+        dashboard_path = Path("docs/ops/templates/grafana/md_ops_dashboard.json")
+        assert dashboard_path.exists(), "Grafana dashboard template missing"
+
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        assert dashboard.get("title") == "Market Data Ops"
+
+        panel_titles = {panel.get("title") for panel in dashboard.get("panels", [])}
+        expected_titles = {
+            "Throughput mps",
+            "Subscription Coverage",
+            "Active Feed Source",
+            "Tick Latency P99",
+            "Rate Limit Hits",
+            "Error Events (last 5m)",
+            "Latest Runbook Exit",
+            "Failover Latency",
+            "Consumer Backlog",
+            "Account Drilldown",
+        }
+        missing = expected_titles - panel_titles
+        assert not missing, f"Dashboard missing panels: {sorted(missing)}"
+
+        annotations = dashboard.get("annotations", {}).get("list", [])
+        annotation_exprs = {
+            item.get("expr") for item in annotations if item.get("expr")
+        }
+        assert (
+            "md_runbook_exit_code" in annotation_exprs
+        ), "Runbook exit annotation not configured"
+        assert (
+            "md_failover_latency_ms" in annotation_exprs
+        ), "Failover latency annotation not configured"
+
+        variables = {
+            var.get("name") for var in dashboard.get("templating", {}).get("list", [])
+        }
+        for var in ("feed", "account", "session"):
+            assert var in variables, f"Dashboard templating missing {var} variable"

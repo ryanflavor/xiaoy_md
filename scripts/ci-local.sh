@@ -8,6 +8,7 @@ set -euo pipefail
 #   ./scripts/ci-local.sh docker-build   # build image + basic verifications
 #   ./scripts/ci-local.sh integration    # start stack + run integration tests
 #   ./scripts/ci-local.sh security       # start stack (auth) + security tests
+#   ./scripts/ci-local.sh failover-check # run failover drill in mock mode
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
@@ -74,6 +75,17 @@ run_quality() {
     uv run pytest tests/ -v -m "not integration and not e2e" --tb=short \
       --cov=src --cov-report=term-missing --cov-report=xml
   fi
+
+  echo "\n🩺 Running subscription health mock check..."
+  uv run python scripts/operations/check_feed_health.py \
+    --mode dry-run \
+    --catalogue tests/fixtures/subscription_health/contracts.json \
+    --active-file tests/fixtures/subscription_health/active_snapshot.json \
+    --skip-metrics \
+    --out-dir logs/runbooks/mock \
+    --log-prefix subscription_check_ci \
+    --json-indent 2 \
+    --limit-list 5
 
   echo "\n✅ Quality stage completed"
 }
@@ -218,6 +230,53 @@ run_security() {
   echo "\n✅ Security stage completed"
 }
 
+run_failover_check() {
+  header "🔁 Failover drill check"
+  ensure_uv
+
+  local log_dir=${CI_LOCAL_DRILL_LOG_DIR:-"logs/runbooks/ci-drill"}
+  mkdir -p "$log_dir"
+
+  local env_file
+  env_file=$(mktemp -p "${TMPDIR:-/tmp}" ci-drill-env.XXXXXX)
+  cat <<'EOF' > "$env_file"
+CTP_PRIMARY_BROKER_ID=ci_primary_broker
+CTP_PRIMARY_USER_ID=ci_primary_user
+CTP_PRIMARY_PASSWORD=primary_pass
+CTP_PRIMARY_MD_ADDRESS=tcp://primary.md:10110
+CTP_PRIMARY_TD_ADDRESS=tcp://primary.td:10100
+CTP_PRIMARY_APP_ID=primary_app
+CTP_PRIMARY_AUTH_CODE=primary_auth
+
+CTP_BACKUP_BROKER_ID=ci_backup_broker
+CTP_BACKUP_USER_ID=ci_backup_user
+CTP_BACKUP_PASSWORD=backup_pass
+CTP_BACKUP_MD_ADDRESS=tcp://backup.md:20110
+CTP_BACKUP_TD_ADDRESS=tcp://backup.td:20100
+CTP_BACKUP_APP_ID=backup_app
+CTP_BACKUP_AUTH_CODE=backup_auth
+EOF
+
+  local metrics_file
+  metrics_file=$(mktemp -p "${TMPDIR:-/tmp}" ci-drill-metrics.XXXXXX)
+  echo "consumer_backlog_messages 5" > "$metrics_file"
+
+  ENV_FILE="$env_file" \
+  DRILL_METRICS_SOURCE="$metrics_file" \
+  DRILL_CONSUMER_BACKLOG_THRESHOLD="100" \
+  DRILL_HEALTH_CMD="true" \
+  ./scripts/operations/start_live_env.sh --drill --mock --profile test --window day --log-dir "$log_dir"
+
+  local rc=$?
+  rm -f "$env_file" "$metrics_file"
+  if [[ $rc -ne 0 ]]; then
+    echo "❌ Failover drill check failed" >&2
+    exit $rc
+  fi
+
+  echo "\n✅ Failover drill check completed"
+}
+
 case "${1:-quality}" in
   quality)
     run_quality ;;
@@ -227,7 +286,9 @@ case "${1:-quality}" in
     run_integration ;;
   security)
     run_security ;;
+  failover-check|failover)
+    run_failover_check ;;
   *)
-    echo "Usage: $0 [quality|docker-build|integration|security]" >&2
+    echo "Usage: $0 [quality|docker-build|integration|security|failover-check]" >&2
     exit 2 ;;
 esac

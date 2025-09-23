@@ -18,6 +18,10 @@ from src.infrastructure.nats_publisher import (
     RetryConfig,
 )
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited"
+)
+
 # Test constants to avoid magic numbers
 EXPECTED_CONNECT_ATTEMPTS = 2
 EXPECTED_PUBLISH_ATTEMPTS = 2
@@ -155,6 +159,9 @@ class TestNATSPublisher:
         """Test successful connection to NATS."""
         with patch("src.infrastructure.nats_publisher.NATS") as mock_nats_class:
             mock_nc = AsyncMock()
+            mock_nc.subscribe.return_value = AsyncMock()
+            mock_nc.request.return_value = AsyncMock()
+            mock_nc.flush.return_value = AsyncMock()
             mock_nats_class.return_value = mock_nc
 
             await publisher.connect()
@@ -178,6 +185,9 @@ class TestNATSPublisher:
         """Test connection with retry on failure."""
         with patch("src.infrastructure.nats_publisher.NATS") as mock_nats_class:
             mock_nc = AsyncMock()
+            mock_nc.subscribe = AsyncMock(return_value=AsyncMock())
+            mock_nc.request = AsyncMock(return_value=AsyncMock())
+            mock_nc.flush = AsyncMock(return_value=None)
             mock_nats_class.return_value = mock_nc
 
             # First attempt fails, second succeeds
@@ -200,6 +210,9 @@ class TestNATSPublisher:
         """Test connection fails after max retries."""
         with patch("src.infrastructure.nats_publisher.NATS") as mock_nats_class:
             mock_nc = AsyncMock()
+            mock_nc.subscribe = AsyncMock(return_value=AsyncMock())
+            mock_nc.request = AsyncMock(return_value=AsyncMock())
+            mock_nc.flush = AsyncMock(return_value=None)
             mock_nats_class.return_value = mock_nc
             mock_nc.connect.side_effect = ConnectionClosedError("Connection failed")
 

@@ -25,24 +25,30 @@ from src.infrastructure.ctp_adapter import (
     MAX_FLOAT,
     CTPGatewayAdapter,
     RetryPolicy,
+    _resolve_vt_symbol,
     normalize_address,
 )
 
 
 @pytest.fixture
-def ctp_settings() -> AppSettings:
+def ctp_settings(monkeypatch: pytest.MonkeyPatch) -> AppSettings:
     """Create test settings including CTP credentials and endpoints."""
-    return AppSettings(
-        app_name="test-service",
-        nats_client_id="test-client",
-        ctp_broker_id="9999",
-        ctp_user_id="u001",
-        ctp_password="secret-pass",  # pragma: allowlist secret (test fixture value)
-        ctp_md_address="127.0.0.1:5001",
-        ctp_td_address="tcp://127.0.0.1:5002",
-        ctp_app_id="appx",
-        ctp_auth_code="authy",
-    )
+    env_values = {
+        "CTP_BROKER_ID": "9999",
+        "CTP_USER_ID": "u001",
+        "CTP_PASSWORD": "secret-pass",  # pragma: allowlist secret
+        "CTP_MD_ADDRESS": "127.0.0.1:5001",
+        "CTP_TD_ADDRESS": "tcp://127.0.0.1:5002",
+        "CTP_APP_ID": "appx",
+        "CTP_AUTH_CODE": "authy",  # pragma: allowlist secret
+        "CTP_ROUTE_SELECTOR": "primary",
+        "NATS_CLIENT_ID": "test-client",
+        "APP_NAME": "test-service",
+    }
+    for key, value in env_values.items():
+        monkeypatch.setenv(key, value)
+
+    return AppSettings.model_validate({}, context={"_env_file": None})
 
 
 class FakeExecutor:
@@ -71,12 +77,62 @@ class TestAC1Contract:
         assert adapter.executor is None
 
     @pytest.mark.asyncio
-    async def test_unimplemented_methods_raise(self, ctp_settings: AppSettings):
+    async def test_subscribe_unsubscribe_available(self, ctp_settings: AppSettings):
+        """Story 2.4.2: subscribe/unsubscribe implemented and callable."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        with pytest.raises(NotImplementedError):
-            await adapter.subscribe("rb2401.SHFE")
-        with pytest.raises(NotImplementedError):
-            await adapter.unsubscribe("sub-1")
+        sub = await adapter.subscribe("rb2401.SHFE")
+        assert sub.symbol == "rb2401"
+        assert sub.exchange == "SHFE"
+        assert isinstance(sub.subscription_id, str)
+        assert sub.subscription_id != ""
+        # Should be idempotent for the same symbol
+        sub2 = await adapter.subscribe("rb2401.SHFE")
+        assert sub2.subscription_id == sub.subscription_id
+        # Unsubscribe should not raise
+        await adapter.unsubscribe(sub.subscription_id)
+        # Idempotent unknown unsubscribe logs warning but not raise
+        await adapter.unsubscribe(sub.subscription_id)
+
+
+class TestStory242SubscribeUnsubscribe:
+    """Unit tests for Story 2.4.2: adapter subscribe/unsubscribe behavior."""
+
+    @pytest.mark.asyncio
+    async def test_subscribe_success_and_idempotent(self, ctp_settings: AppSettings):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        sub1 = await adapter.subscribe("rb2401.SHFE")
+        assert sub1.symbol == "rb2401"
+        assert sub1.exchange == "SHFE"
+        assert sub1.subscription_id.startswith("sub-")
+
+        # Duplicate subscribe returns existing
+        sub2 = await adapter.subscribe("rb2401.SHFE")
+        assert sub2.subscription_id == sub1.subscription_id
+
+    @pytest.mark.asyncio
+    async def test_subscribe_plain_symbol_uses_unknown_exchange(
+        self, ctp_settings: AppSettings
+    ):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        sub = await adapter.subscribe("IF2312")
+        assert sub.symbol == "IF2312"
+        assert sub.exchange == "UNKNOWN"
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_unknown_is_idempotent(
+        self, ctp_settings: AppSettings, caplog
+    ):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        await adapter.unsubscribe("does-not-exist")
+        assert "unknown_subscription_id" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_invalid_symbol_raises(self, ctp_settings: AppSettings):
+        adapter = CTPGatewayAdapter(ctp_settings)
+        with pytest.raises(Exception):
+            await adapter.subscribe("")
+        with pytest.raises(Exception):
+            await adapter.subscribe("!!bad!!")
 
 
 class TestAC2ThreadLifecycle:
@@ -185,6 +241,15 @@ class TestAC4ConfigMappingAndNormalization:
         assert normalize_address("tcp://127.0.0.1:5002") == "tcp://127.0.0.1:5002"
         assert normalize_address("ssl://example:443") == "ssl://example:443"
 
+    def test_resolve_vt_symbol_infers_exchange_from_base(self):
+        class _Tick:
+            vt_symbol = None
+            exchange = None
+
+        vt, ex = _resolve_vt_symbol(_Tick(), "IF2312.CFFEX")
+        assert vt == "IF2312.CFFEX"
+        assert ex == "CFFEX"
+
     def test_to_dict_safe_masks_secrets(self, ctp_settings: AppSettings):
         data = ctp_settings.to_dict_safe()
         assert data["ctp_password"] != ctp_settings.ctp_password
@@ -237,7 +302,7 @@ class TestStory22AC1OnTickMethod:
         await asyncio.sleep(0.01)
 
         # Should have queued the tick
-        assert adapter._tick_queue.qsize() > 0  # noqa: SLF001
+        assert adapter.tick_queue.qsize() > 0
 
     @pytest.mark.asyncio
     async def test_on_tick_ignores_ticks_without_contract_data(
@@ -257,14 +322,21 @@ class TestStory22AC1OnTickMethod:
         adapter.on_tick(mock_tick)
 
         # Should not queue the tick
-        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
+        assert adapter.tick_queue_size == 0
 
     @pytest.mark.asyncio
     async def test_queue_initialization_with_maxsize(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-006: Test queue initialization with maxsize=1000 [AC1]."""
+        """Test 2.2-UNIT-006: Test queue initialization with configured maxsize [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        assert adapter._tick_queue.maxsize == 1000  # noqa: SLF001
-        assert adapter._tick_queue.empty()  # noqa: SLF001
+        assert adapter.tick_queue_capacity == ctp_settings.tick_queue_maxsize
+        assert adapter.tick_queue_size == 0
+
+    @pytest.mark.asyncio
+    async def test_queue_respects_settings_override(self, ctp_settings: AppSettings):
+        """Queue maxsize should honor AppSettings.tick_queue_maxsize override."""
+        ctp_settings.tick_queue_maxsize = 75000
+        adapter = CTPGatewayAdapter(ctp_settings)
+        assert adapter.tick_queue_capacity == 75000
 
     @pytest.mark.asyncio
     async def test_queue_full_detection_and_drop_counter(
@@ -276,9 +348,9 @@ class TestStory22AC1OnTickMethod:
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Fill the queue
-        adapter._tick_queue = asyncio.Queue(maxsize=2)  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
+        adapter.replace_tick_queue_for_testing(asyncio.Queue(maxsize=2))
+        await adapter.tick_queue.put(Mock())
+        await adapter.tick_queue.put(Mock())
 
         # Create tick that will be dropped
         mock_tick = Mock()
@@ -301,13 +373,13 @@ class TestStory22AC1OnTickMethod:
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Add some ticks to queue
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        assert adapter._tick_queue.qsize() == 2  # noqa: SLF001
+        await adapter.tick_queue.put(Mock())
+        await adapter.tick_queue.put(Mock())
+        assert adapter.tick_queue.qsize() == 2
 
         # Disconnect should clear queue
         await adapter.disconnect()
-        assert adapter._tick_queue.empty()  # noqa: SLF001
+        assert adapter.tick_queue.empty()
 
 
 class TestStory22AC2AsyncBridge:
@@ -339,6 +411,11 @@ class TestStory22AC2AsyncBridge:
         assert result.volume == Decimal("1000")
         assert result.bid == Decimal("4499.0")
         assert result.ask == Decimal("4501.0")
+        assert result.vnpy["vt_symbol"] == "rb2401"
+        assert result.vnpy["last_price"] == 4500.0
+        assert result.vnpy["bid_price_1"] == 4499.0
+        assert result.vnpy["ask_price_1"] == 4501.0
+        assert result.vnpy["exchange"] == "UNKNOWN"
 
     @pytest.mark.asyncio
     async def test_timezone_normalization_to_china(self, ctp_settings: AppSettings):
@@ -362,6 +439,7 @@ class TestStory22AC2AsyncBridge:
         expected_china = china_time.astimezone(CHINA_TZ)
         assert result.timestamp == expected_china
         assert result.timestamp.tzinfo == CHINA_TZ
+        assert result.vnpy["datetime"].endswith("+08:00")
 
     @pytest.mark.asyncio
     async def test_dst_boundary_timezone_conversion(self, ctp_settings: AppSettings):
@@ -382,6 +460,7 @@ class TestStory22AC2AsyncBridge:
         result = adapter._translate_vnpy_tick(mock_tick)  # noqa: SLF001
         expected_china = summer_time.astimezone(CHINA_TZ)
         assert result.timestamp == expected_china
+        assert result.vnpy["datetime"].endswith("+08:00")
 
     @pytest.mark.asyncio
     async def test_max_float_to_zero_conversion(self, ctp_settings: AppSettings):
@@ -401,6 +480,9 @@ class TestStory22AC2AsyncBridge:
         assert result.price == Decimal("0")
         assert result.bid == Decimal("0")
         assert result.ask == Decimal("4501.0")
+        assert result.vnpy["last_price"] == 0
+        assert result.vnpy["bid_price_1"] == 0
+        assert result.vnpy["ask_price_1"] == 4501.0
 
     @pytest.mark.asyncio
     async def test_run_coroutine_threadsafe_with_valid_loop(
@@ -429,7 +511,7 @@ class TestStory22AC2AsyncBridge:
 
         # Give time for async operation
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
     @pytest.mark.asyncio
     async def test_handling_of_stopped_event_loop(
@@ -480,7 +562,7 @@ class TestStory22AC2AsyncBridge:
             price=Decimal("4500"),
             timestamp=datetime.now(ZoneInfo("UTC")),
         )
-        await adapter._tick_queue.put(test_tick)  # noqa: SLF001
+        await adapter.tick_queue.put(test_tick)
 
         # Test async iteration
         received_ticks = []
@@ -546,7 +628,7 @@ class TestStory22AC3TestVerification:
 
         # Should not process without contract
         adapter.on_tick(mock_tick)
-        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 0
 
         # Add contract and retry
         adapter.symbol_contract_map["rb2401"] = Mock()
@@ -554,7 +636,7 @@ class TestStory22AC3TestVerification:
 
         # Now should process
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
     @pytest.mark.asyncio
     async def test_symbol_contract_map_lookup(self, ctp_settings: AppSettings):
@@ -582,7 +664,7 @@ class TestStory22AC3TestVerification:
 
         # Should process known symbol
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
         # Test failed lookup
         mock_tick.symbol = "unknown"
@@ -590,7 +672,7 @@ class TestStory22AC3TestVerification:
 
         # Should not add another tick
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
 
 class TestStory22Integration:

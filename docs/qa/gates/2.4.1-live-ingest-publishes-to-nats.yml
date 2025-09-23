@@ -1,0 +1,23 @@
+id: "2.4.1"
+title: "Live Ingest Publishes to NATS"
+epic: "2"
+story_ref: "2.4.1"
+slug: "live-ingest-publishes-to-nats"
+date: "2025-09-11"
+decision: "PASS"
+rationale:
+  - "AC1 satisfied: live entry composes CTPGatewayAdapter + MarketDataService + NATSPublisher and publishes to market.tick.{exchange}.{symbol}."
+  - "AC2 satisfied: NATS_URL (+ optional NATS_USER/PASSWORD) and CTP_SYMBOL respected via AppSettings and connector behavior."
+  - "AC3 satisfied: logs for start, NATS connection, publish counts, and graceful shutdown present."
+  - "AC4 satisfied: existing __main__ health-check flow unaffected; full suite passes."
+evidence:
+  - tests/integration/test_live_ingest_entrypoint.py
+  - tests/integration/test_end_to_end_market_tick_flow.py
+  - src/main.py
+  - src/application/services.py
+  - src/infrastructure/nats_publisher.py
+risks:
+  - "Minor Ruff warnings in new tests (non-blocking)."
+  - "Integration test depends on Docker for NATS; CI may need skip configuration if Docker unavailable."
+notes:
+  - "Seeding CTP_SYMBOL in adapter contract map prevents initial tick drops; actual subscribe happens in vn.py connector when used."

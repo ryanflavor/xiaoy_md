@@ -12,6 +12,7 @@ import asyncio
 import time
 from typing import Any
 
+from pydantic import SecretStr
 import pytest
 
 from src.config import AppSettings
@@ -27,11 +28,11 @@ def ctp_settings() -> AppSettings:
         nats_client_id="test-client",
         ctp_broker_id="9999",
         ctp_user_id="u001",
-        ctp_password="secret-pass",  # pragma: allowlist secret (test fixture value)
+        ctp_password=SecretStr("secret-pass"),  # pragma: allowlist secret
         ctp_md_address="127.0.0.1:5001",
         ctp_td_address="tcp://127.0.0.1:5002",
         ctp_app_id="appx",
-        ctp_auth_code="authy",
+        ctp_auth_code=SecretStr("authy"),
     )
 
 

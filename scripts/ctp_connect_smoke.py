@@ -43,7 +43,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-from src.config import settings
+import os
+from pathlib import Path
+
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 
 # Constants for log levels and intervals
@@ -226,24 +228,58 @@ def real_ctp_gateway_connect(
             main_engine.close()
 
 
+def _load_ctp_env_from_root() -> None:
+    """Best-effort load of CTP_* from repo-root .env regardless of CWD.
+
+    This mirrors scripts/run_live_test.sh behavior to avoid surprises when
+    executing this script from outside the project root.
+    """
+    # Only attempt if CTP_BROKER_ID not already present
+    if os.environ.get("CTP_BROKER_ID"):
+        return
+    root = Path(__file__).resolve().parent.parent
+    env_path = root / ".env"
+    if not env_path.exists():
+        return
+    try:
+        raw = env_path.read_text(encoding="utf-8")
+        for row in raw.splitlines():
+            text = row.strip()
+            if not text or text.startswith("#") or not text.startswith("CTP_"):
+                continue
+            if "=" not in text:
+                continue
+            key, val = text.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            os.environ.setdefault(key, val)
+    except OSError:
+        # Non-fatal: just rely on existing environment
+        return
+
+
 async def run(duration: float) -> int:
     log = logging.getLogger(__name__)
+    _load_ctp_env_from_root()
+    from src.config import AppSettings  # local import after env load
+
+    cfg = AppSettings()
 
     # Basic presence checks for required fields; adapter will normalize addresses
     missing = []
-    if not settings.ctp_broker_id:
+    if not cfg.ctp_broker_id:
         missing.append("CTP_BROKER_ID")
-    if not settings.ctp_user_id:
+    if not cfg.ctp_user_id:
         missing.append("CTP_USER_ID")
-    if not settings.ctp_password:
+    if not cfg.ctp_password:
         missing.append("CTP_PASSWORD")
-    if not settings.ctp_md_address:
+    if not cfg.ctp_md_address:
         missing.append("CTP_MD_ADDRESS")
-    if not settings.ctp_td_address:
+    if not cfg.ctp_td_address:
         missing.append("CTP_TD_ADDRESS")
-    if not settings.ctp_app_id:
+    if not cfg.ctp_app_id:
         missing.append("CTP_APP_ID")
-    if not settings.ctp_auth_code:
+    if not cfg.ctp_auth_code:
         missing.append("CTP_AUTH_CODE")
 
     if missing:
@@ -265,7 +301,7 @@ async def run(duration: float) -> int:
             connection_failed["failed"] = True
             raise
 
-    adapter = CTPGatewayAdapter(settings, gateway_connect=failure_aware_connect)
+    adapter = CTPGatewayAdapter(cfg, gateway_connect=failure_aware_connect)
 
     log.info("ctp_smoke_start", extra={"duration_sec": duration})
     try:
@@ -297,12 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         default=120.0,
         help="Run duration in seconds (default: 120)",
     )
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        default=settings.log_level if settings.log_level else "INFO",
-        help="Logging level (default: from settings or INFO)",
-    )
+    parser.add_argument("--log-level", type=str, default="INFO", help="Logging level")
     args = parser.parse_args(argv)
 
     configure_logging(args.log_level)

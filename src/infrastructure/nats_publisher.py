@@ -15,11 +15,13 @@ import logging
 import secrets
 import time
 from typing import Any, TypeVar
+from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 from nats.aio.client import Client as NATS
 from nats.errors import ConnectionClosedError
 from nats.errors import TimeoutError as NATSTimeoutError
+from pydantic import SecretStr
 
 from src.config import AppSettings
 from src.domain.ports import MessagePublisherPort
@@ -28,6 +30,12 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _resolve_secret(value: str | SecretStr | None) -> str | None:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
 
 
 class CircuitBreakerOpenError(ConnectionClosedError):
@@ -191,8 +199,16 @@ class NATSPublisher(MessagePublisherPort):
             Dictionary of connection options
 
         """
+        env = self.settings.environment.lower()
+        server_url = (
+            self.settings.nats_url
+            if env == "development"
+            else _canonicalize_server_url(self.settings.nats_url)
+        )
+        servers = [server_url]
+
         options = {
-            "servers": [self.settings.nats_url],
+            "servers": servers,
             "name": self.settings.nats_client_id,
             "reconnect_time_wait": 2,
             "max_reconnect_attempts": 10,
@@ -204,16 +220,17 @@ class NATSPublisher(MessagePublisherPort):
 
         # In development, use faster connection timeouts to avoid blocking local runs.
         # Keep default (more robust) timeouts for test/production to improve stability.
-        env = self.settings.environment.lower()
         if env == "development":
             options["connect_timeout"] = 0.5
             options["reconnect_time_wait"] = 0.1
             options["max_reconnect_attempts"] = 1
 
         # Add authentication if configured (simple username/password only)
-        if self.settings.nats_user and self.settings.nats_password:
-            options["user"] = self.settings.nats_user
-            options["password"] = self.settings.nats_password
+        password = _resolve_secret(getattr(self.settings, "nats_password", None))
+        user = getattr(self.settings, "nats_user", None)
+        if user and password:
+            options["user"] = user
+            options["password"] = password
             logger.info("NATS authentication configured")
 
         return options
@@ -539,3 +556,35 @@ class NATSPublisher(MessagePublisherPort):
     def health_check_subscription(self, value: Any) -> None:
         """Public setter for health check subscription (testing only)."""
         self._health_check_subscription = value
+
+
+def _canonicalize_server_url(url: str) -> str:
+    """Normalize server URL to avoid DNS-dependent hostnames."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url
+
+    host = parsed.hostname
+    if not host:
+        return url
+
+    host_lower = host.lower()
+    # Normalize localhost to an explicit loopback address when canonicalization is enabled.
+    replacement = None
+    if host_lower == "localhost":
+        replacement = "127.0.0.1"
+
+    if replacement is None:
+        return url
+
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{userinfo}{replacement}{port}"
+    return urlunparse(parsed._replace(netloc=netloc))

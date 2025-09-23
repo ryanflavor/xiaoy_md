@@ -7,6 +7,7 @@ All models are immutable as per coding standards.
 from datetime import datetime
 from decimal import Decimal
 import re
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -48,6 +49,10 @@ class MarketTick(BaseModel):
     timestamp: datetime = Field(..., description="Time when the tick was generated")
     bid: Decimal | None = Field(default=None, description="Current bid price")
     ask: Decimal | None = Field(default=None, description="Current ask price")
+    vnpy: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Serialized vn.py TickData payload (JSON friendly)",
+    )
 
     @field_validator("symbol")
     @classmethod

@@ -35,6 +35,33 @@
   **NFR6** ：服务必须提供连接状态、错误和关键操作的基本日志记录。
 * **NFR7 (Extensibility)**: The architecture must define a generic "Gateway Adapter" port (interface). The CTP gateway integration will be the first implementation of this port, ensuring that other gateways (like SOPT) can be added in the future with minimal changes to the core application logic.
   **NFR7（可扩展性）** ：架构必须定义一个通用的“网关适配器”端口（接口）。CTP 网关集成将是该端口的首次实现，以确保将来能够在核心应用程序逻辑改动最小的情况下添加其他网关（如 SOPT）。
+* **NFR8 (Operational Readiness)**: MVP delivery must include documented runbooks and automation that cover pre-market startup, intra-day restarts, and safe shutdown of NATS, the market-data-service, and subscription workers with success/error logging.
+  **NFR8（运营就绪）** ：MVP 必须交付文档化的运行手册与自动化能力，覆盖盘前启动、盘中重启、NATS/market-data-service/订阅脚本的安全停机，并记录成功/错误日志。
+* **NFR9 (Observability & Alerting)**: Core operational metrics (subscription coverage, throughput, latency, rate-limit triggers, error counts) must be exported to dashboards with configurable alerts.
+  **NFR9（可观测性与告警）** ：核心运维指标（订阅覆盖率、吞吐量、延迟、限流触发、错误计数）必须输出到仪表盘并支持可配置告警。
+  - Notification wiring: Slack channel `#market-data-ops` via webhook `SLACK_WEBHOOK_MD_OPS`; PagerDuty service `market-data-service` using integration key `PD_SERVICE_MARKET_DATA`; primary on-call rotation `md-ops-weekday` (Ops Guild) with backup `md-ops-weekend` for Chinese public holidays.
+    告警线路：Slack 频道 `#market-data-ops`（Webhook `SLACK_WEBHOOK_MD_OPS`），PagerDuty 服务 `market-data-service`（集成 Key `PD_SERVICE_MARKET_DATA`），主值班轮值 `md-ops-weekday`（运维团队）+ 节假日备份 `md-ops-weekend`。
+* **NFR10 (Multi-Account Resilience)**: Configuration patterns for primary/backup market data accounts or providers must be documented with tested failover procedures that minimize downstream disruption.
+  **NFR10（多账户弹性）** ：必须文档化主备行情账户或数据源的配置模式，并具备经过演练的故障切换流程，以尽量减少对下游的影响。
+
+## **MVP Operational Scope Update**
+
+**MVP 运营范围更新**
+
+To be considered MVP-complete, the service must provide:
+
+被视为完成 MVP，服务必须提供：
+
+- Repeatable runbooks and scripts for daily startup/shutdown and emergency recovery of the live topology.
+  为实时拓扑提供可重复执行的每日启动/停机及紧急恢复运行手册和脚本。
+- Monitoring dashboards and alerts that expose subscription coverage, throughput, latency, and error conditions in real time.
+  提供实时展示订阅覆盖率、吞吐量、延迟和错误状况的监控仪表盘与告警。
+- A subscription workflow that supports batch operations, rate limiting, and health checks to detect missing contracts or throttling incidents.
+  具备支持批量操作、速率限制及健康检查的订阅流程，以检测缺失合约或限流事件。
+- Documented procedures for multi-account routing and failover drills that keep downstream consumers stable.
+  文档化多账户路由与故障切换演练流程，确保下游消费者保持稳定。
+- Technical placeholders that keep SOPT and additional market sources feasible after Epic 3 is delivered.
+  预留技术空间，使史诗 3 完成后能够继续扩展到 SOPT 及其他行情源。
 
 ## **Post-MVP Reliability Requirements**
 

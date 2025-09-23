@@ -7,6 +7,10 @@ import pytest
 
 import src.__main__ as main_module
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited"
+)
+
 
 class _DummyService:
     def __init__(self, *_args, **_kwargs) -> None:
@@ -32,6 +36,34 @@ async def test_run_service_auto_shutdown_when_pytest_env(
 
     # Ensure environment uses test behavior via env flag
     monkeypatch.setenv("ENVIRONMENT", "test")
+
+    class _DummyPublisher:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.retry_config = type("RetryConfig", (), {})()
+            self.connection_stats = {
+                "connect_attempts": 0,
+                "successful_publishes": 0,
+                "failed_publishes": 0,
+            }
+
+        async def connect(self) -> None:  # pragma: no cover - trivial
+            self.connection_stats["connect_attempts"] += 1
+
+        async def disconnect(self) -> None:  # pragma: no cover - trivial
+            return None
+
+        def get_connection_stats(self) -> dict[str, int]:
+            return self.connection_stats
+
+    class _DummyRPC:
+        async def start(self) -> None:  # pragma: no cover - trivial
+            return None
+
+        async def stop(self) -> None:  # pragma: no cover - trivial
+            return None
+
+    monkeypatch.setattr(main_module, "NATSPublisher", _DummyPublisher)
+    monkeypatch.setattr(main_module, "NATSRPCServer", lambda *_a, **_k: _DummyRPC())
 
     # Should return within ~1s due to call_later in run_service
     await asyncio.wait_for(main_module.run_service(), timeout=3.0)

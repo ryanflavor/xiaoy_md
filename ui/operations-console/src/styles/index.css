@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+  background-color: #0F172A;
+  color: #E2E8F0;
+}
+
+body {
+  @apply bg-background text-neutral-100;
+}
+
+a {
+  @apply text-primary hover:text-primary/80;
+}
+
+.button-primary {
+  @apply inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 font-medium text-background transition hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
+}
+
+.card-surface {
+  @apply rounded-2xl bg-surface/90 p-6 shadow-card backdrop-blur;
+}
