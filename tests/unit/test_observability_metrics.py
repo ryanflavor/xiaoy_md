@@ -7,9 +7,18 @@ import logging
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+import prometheus_client.parser as prometheus_parser
 import pytest
 
-from src.application.services import MarketDataService, MetricsConfig
+from src.application.observability import (
+    IngestMetricLabels,
+    PrometheusMetricsExporter,
+)
+from src.application.services import (
+    MarketDataService,
+    MetricsConfig,
+    ServiceDependencies,
+)
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import MarketDataPort, MessagePublisherPort
 
@@ -93,9 +102,19 @@ async def test_metrics_counters_and_reporter_smoke(
     md = _DropAwarePort(ticks)
     pub = _FlakyPublisher()
 
+    exporter = PrometheusMetricsExporter(
+        host="127.0.0.1",
+        port=9401,
+        labels=IngestMetricLabels(feed="primary", account="acct"),
+        start_http=False,
+    )
+
     svc = MarketDataService(
-        market_data_port=md,
-        publisher_port=pub,
+        ports=ServiceDependencies(
+            market_data=md,
+            publisher=pub,
+            metrics_exporter=exporter,
+        ),
         metrics=MetricsConfig(window_seconds=0.1, report_interval_seconds=0.1),
     )
 
@@ -105,6 +124,7 @@ async def test_metrics_counters_and_reporter_smoke(
 
     # Allow reporter to emit at least one snapshot
     await asyncio.sleep(0.2)
+    svc.emit_metrics_snapshot()
 
     snap = svc.get_metrics_snapshot()
     assert snap["published_total"] == 1  # one success
@@ -125,5 +145,29 @@ async def test_metrics_counters_and_reporter_smoke(
         "nats_connected",
     ):
         assert hasattr(r, field), f"missing field: {field}"
+
+    metrics_text = exporter.scrape().decode("utf-8")
+    families = {
+        family.name: family
+        for family in prometheus_parser.text_string_to_metric_families(metrics_text)
+    }
+
+    throughput_samples = families["md_throughput_mps"].samples
+    assert throughput_samples
+    throughput_sample = throughput_samples[0]
+    assert throughput_sample.labels["feed"] == "primary"
+    assert throughput_sample.labels["account"] == "acct"
+    assert throughput_sample.value >= 0.0
+
+    latency_samples = families["md_latency_ms_p99"].samples
+    assert latency_samples
+    assert latency_samples[0].labels["feed"] == "primary"
+
+    error_samples = families["md_error_count"].samples
+    assert error_samples
+    err_sample = error_samples[0]
+    assert err_sample.labels["component"] == "publisher"
+    assert err_sample.labels["severity"] == "critical"
+    assert err_sample.value == 1.0
 
     await svc.shutdown()

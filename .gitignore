@@ -125,6 +125,7 @@ celerybeat.pid
 .env.local
 .env.test
 .env.production
+.env.live
 # But keep examples
 !.env.example
 !.env.*.example

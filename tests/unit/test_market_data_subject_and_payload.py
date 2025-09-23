@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.application.services import MarketDataService
+from src.application.services import MarketDataService, ServiceDependencies
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
@@ -82,7 +82,11 @@ async def test_subject_and_payload_with_exchange_and_timezone_conversion() -> No
     md = _MD(symbol="IF2312.CFFEX", tz="UTC")
     pub = _Pub()
     svc = MarketDataService(
-        market_data_port=md, publisher_port=pub, repository_port=_Repo()
+        ports=ServiceDependencies(
+            market_data=md,
+            publisher=pub,
+            repository=_Repo(),
+        )
     )
 
     await svc.process_market_data()

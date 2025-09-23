@@ -17,7 +17,11 @@ try:
 except ImportError:  # pragma: no cover - fallback for older versions
     from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore[attr-defined]
 
-from src.application.services import MarketDataService
+from src.application.observability import (
+    IngestMetricLabels,
+    PrometheusMetricsExporter,
+)
+from src.application.services import MarketDataService, ServiceDependencies
 from src.config import settings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher, RetryConfig
@@ -112,10 +116,27 @@ async def run_service() -> None:  # noqa: PLR0912, PLR0915
         # Create adapter (for control-plane subscription handling)
         adapter = CTPGatewayAdapter(settings)
 
+        metrics_exporter: PrometheusMetricsExporter | None = None
+        if settings.enable_ingest_metrics:
+            start_http = os.environ.get("PYTEST_CURRENT_TEST") is None
+            metrics_exporter = PrometheusMetricsExporter(
+                host=settings.ingest_metrics_host,
+                port=settings.ingest_metrics_port,
+                labels=IngestMetricLabels(
+                    feed=settings.resolved_metrics_feed(),
+                    account=settings.resolved_metrics_account(),
+                ),
+                start_http=start_http,
+            )
+
         # Create service with NATS publisher and attach adapter as market data port
-        service = MarketDataService(publisher_port=nats_publisher)
-        # Attach port post-construction to preserve unit test expectations
-        service.market_data_port = adapter
+        service = MarketDataService(
+            ports=ServiceDependencies(
+                market_data=adapter,
+                publisher=nats_publisher,
+                metrics_exporter=metrics_exporter,
+            ),
+        )
 
         try:
             await service.initialize()

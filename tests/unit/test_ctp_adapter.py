@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
+from pydantic import SecretStr
 import pytest
 
 from src.config import AppSettings
@@ -37,11 +38,11 @@ def ctp_settings() -> AppSettings:
         nats_client_id="test-client",
         ctp_broker_id="9999",
         ctp_user_id="u001",
-        ctp_password="secret-pass",  # pragma: allowlist secret (test fixture value)
+        ctp_password=SecretStr("secret-pass"),  # pragma: allowlist secret
         ctp_md_address="127.0.0.1:5001",
         ctp_td_address="tcp://127.0.0.1:5002",
         ctp_app_id="appx",
-        ctp_auth_code="authy",
+        ctp_auth_code=SecretStr("authy"),
     )
 
 
@@ -287,7 +288,7 @@ class TestStory22AC1OnTickMethod:
         await asyncio.sleep(0.01)
 
         # Should have queued the tick
-        assert adapter._tick_queue.qsize() > 0  # noqa: SLF001
+        assert adapter.tick_queue.qsize() > 0
 
     @pytest.mark.asyncio
     async def test_on_tick_ignores_ticks_without_contract_data(
@@ -307,14 +308,21 @@ class TestStory22AC1OnTickMethod:
         adapter.on_tick(mock_tick)
 
         # Should not queue the tick
-        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
+        assert adapter.tick_queue_size == 0
 
     @pytest.mark.asyncio
     async def test_queue_initialization_with_maxsize(self, ctp_settings: AppSettings):
-        """Test 2.2-UNIT-006: Test queue initialization with maxsize=1000 [AC1]."""
+        """Test 2.2-UNIT-006: Test queue initialization with configured maxsize [AC1]."""
         adapter = CTPGatewayAdapter(ctp_settings)
-        assert adapter._tick_queue.maxsize == 1000  # noqa: SLF001
-        assert adapter._tick_queue.empty()  # noqa: SLF001
+        assert adapter.tick_queue_capacity == ctp_settings.tick_queue_maxsize
+        assert adapter.tick_queue_size == 0
+
+    @pytest.mark.asyncio
+    async def test_queue_respects_settings_override(self, ctp_settings: AppSettings):
+        """Queue maxsize should honor AppSettings.tick_queue_maxsize override."""
+        ctp_settings.tick_queue_maxsize = 75000
+        adapter = CTPGatewayAdapter(ctp_settings)
+        assert adapter.tick_queue_capacity == 75000
 
     @pytest.mark.asyncio
     async def test_queue_full_detection_and_drop_counter(
@@ -326,9 +334,9 @@ class TestStory22AC1OnTickMethod:
         adapter.symbol_contract_map["rb2401"] = Mock()
 
         # Fill the queue
-        adapter._tick_queue = asyncio.Queue(maxsize=2)  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
+        adapter.replace_tick_queue_for_testing(asyncio.Queue(maxsize=2))
+        await adapter.tick_queue.put(Mock())
+        await adapter.tick_queue.put(Mock())
 
         # Create tick that will be dropped
         mock_tick = Mock()
@@ -351,13 +359,13 @@ class TestStory22AC1OnTickMethod:
         adapter = CTPGatewayAdapter(ctp_settings)
 
         # Add some ticks to queue
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        await adapter._tick_queue.put(Mock())  # noqa: SLF001
-        assert adapter._tick_queue.qsize() == 2  # noqa: SLF001
+        await adapter.tick_queue.put(Mock())
+        await adapter.tick_queue.put(Mock())
+        assert adapter.tick_queue.qsize() == 2
 
         # Disconnect should clear queue
         await adapter.disconnect()
-        assert adapter._tick_queue.empty()  # noqa: SLF001
+        assert adapter.tick_queue.empty()
 
 
 class TestStory22AC2AsyncBridge:
@@ -489,7 +497,7 @@ class TestStory22AC2AsyncBridge:
 
         # Give time for async operation
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
     @pytest.mark.asyncio
     async def test_handling_of_stopped_event_loop(
@@ -540,7 +548,7 @@ class TestStory22AC2AsyncBridge:
             price=Decimal("4500"),
             timestamp=datetime.now(ZoneInfo("UTC")),
         )
-        await adapter._tick_queue.put(test_tick)  # noqa: SLF001
+        await adapter.tick_queue.put(test_tick)
 
         # Test async iteration
         received_ticks = []
@@ -606,7 +614,7 @@ class TestStory22AC3TestVerification:
 
         # Should not process without contract
         adapter.on_tick(mock_tick)
-        assert adapter._tick_queue.qsize() == 0  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 0
 
         # Add contract and retry
         adapter.symbol_contract_map["rb2401"] = Mock()
@@ -614,7 +622,7 @@ class TestStory22AC3TestVerification:
 
         # Now should process
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
     @pytest.mark.asyncio
     async def test_symbol_contract_map_lookup(self, ctp_settings: AppSettings):
@@ -642,7 +650,7 @@ class TestStory22AC3TestVerification:
 
         # Should process known symbol
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
         # Test failed lookup
         mock_tick.symbol = "unknown"
@@ -650,7 +658,7 @@ class TestStory22AC3TestVerification:
 
         # Should not add another tick
         await asyncio.sleep(0.01)
-        assert adapter._tick_queue.qsize() == 1  # noqa: SLF001
+        assert adapter.tick_queue.qsize() == 1
 
 
 class TestStory22Integration:

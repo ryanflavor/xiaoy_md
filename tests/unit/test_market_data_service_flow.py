@@ -7,7 +7,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.application.services import MarketDataService, RateLimitError
+from src.application.services import (
+    MarketDataService,
+    RateLimitError,
+    ServiceDependencies,
+)
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
@@ -93,7 +97,11 @@ async def test_market_data_service_sub_unsub_and_process_flow() -> None:
     repo = _Repo()
 
     svc = MarketDataService(
-        market_data_port=md, publisher_port=pub, repository_port=repo
+        ports=ServiceDependencies(
+            market_data=md,
+            publisher=pub,
+            repository=repo,
+        )
     )
 
     await svc.initialize()
@@ -113,7 +121,11 @@ async def test_market_data_service_sub_unsub_and_process_flow() -> None:
 @pytest.mark.asyncio
 async def test_market_data_service_rate_limit_blocks_subscribe() -> None:
     svc = MarketDataService(
-        market_data_port=_MD(), publisher_port=_Pub(), repository_port=_Repo()
+        ports=ServiceDependencies(
+            market_data=_MD(),
+            publisher=_Pub(),
+            repository=_Repo(),
+        )
     )
     # Simulate limit reached
     svc.simulate_rate_limit_state("subscribe", svc.RATE_LIMIT_MAX_REQUESTS)
@@ -129,6 +141,8 @@ async def test_service_integration_with_ctp_adapter(ctp_settings=None) -> None:
     without affecting other flows.
     """
     # Lazy import to avoid heavy dependencies at module import time
+    from pydantic import SecretStr
+
     from src.config import AppSettings
     from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 
@@ -137,15 +151,15 @@ async def test_service_integration_with_ctp_adapter(ctp_settings=None) -> None:
         nats_client_id="test-client",
         ctp_broker_id="9999",
         ctp_user_id="u001",
-        ctp_password="secret-pass",  # pragma: allowlist secret (test fixture value)
+        ctp_password=SecretStr("secret-pass"),  # pragma: allowlist secret
         ctp_md_address="127.0.0.1:5001",
         ctp_td_address="tcp://127.0.0.1:5002",
         ctp_app_id="appx",
-        ctp_auth_code="authy",  # pragma: allowlist secret (test fixture value)
+        ctp_auth_code=SecretStr("authy"),  # pragma: allowlist secret
     )
 
     adapter = CTPGatewayAdapter(settings)
-    svc = MarketDataService(market_data_port=adapter)
+    svc = MarketDataService(ports=ServiceDependencies(market_data=adapter))
 
     sub = await svc.subscribe_to_symbol("rb2401.SHFE")
     assert sub.symbol == "rb2401"

@@ -2,6 +2,7 @@
 
 | Date | Version | Description | Author |
 | :---- | :---- | :---- | :---- |
+| 2025-09-18 | 1.1 | Production operations & multi-source expansion baseline | Architect (Winston) |
 | 2025-09-02 | 1.0 | Initial Design and Finalization | Architect (Winston) |
 
 ## **1\. Introduction**
@@ -37,30 +38,45 @@ Code snippet
 
 graph TD
     subgraph "External Systems"
-        A\["vnpy CTP Gateway"\]
+        A\["Primary CTP Gateway"\]
+        A2\["Backup Feed / Alternate Source"\]
     end
 
     subgraph "Market Data Service Container (Docker)"
+        I\["Ops Orchestrator\\n(start\_live\_env.sh)"\]
         B\["CTP Adapter (Input Port)"\]
         C\["Core Application Logic (Domain Layer)"\]
+        H\["Subscription Health Agent"\]
         D\["NATS Publisher (Output Port)"\]
+        I \-- Bootstrap --> B
         B \-- TickData Event \--\> C
         C \-- Publish Command \--\> D
+        C \-- Health Snapshot \--\> H
+        H \-- Recovery Hooks \--\> I
     end
 
     subgraph "Infrastructure"
         E\["NATS JetStream Cluster"\]
+        M\["Prometheus Metrics Store"\]
     end
 
-    subgraph "Internal Consumers"
-        F\["Strategy App A"\]
-        G\["Monitoring Dashboard B"\]
+    subgraph "Operations & Insights"
+        F\["Ops Engineer / Runbook"\]
+        G\["Grafana Dashboards & Alerts"\]
     end
 
-    A \-- "Real-time Ticks (TCP)" \--\> B
-    D \-- "Publish Ticks (NATS Protocol)" \--\> E
-    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> F
-    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> G
+    A \-- "Real-time Ticks" \--\> B
+    A2 \-- "Failover Route" \--\> B
+    D \-- "Publish Ticks" \--\> E
+    E \-- "Subscribe to Ticks" \--\> F
+    H \-- "Metrics & Events" \--\> M
+    M \-- "Dashboards & Alerts" \--\> G
+    G \-- "Alert Actions" \--\> F
+    F \-- "Automation Trigger" \--\> I
+
+### **Production Operations Layer (Epic 3 Scope)**
+
+Epic 3 formalizes a production-operations plane around the service. Automated runbooks sequence start/restart/shutdown of NATS, the market-data-service, and subscription workers; health agents continuously reconcile live subscriptions against the required contract universe; and the observability stack exports metrics into Prometheus with Grafana-driven dashboards and alerts. Multi-account configuration and alternate feed routing now sit alongside the primary CTP gateway so failover flows can execute without disturbing downstream subscribers.
 
 ### **Architectural and Design Patterns**
 
@@ -69,6 +85,9 @@ graph TD
 * **Thread Supervisor Pattern**: The CTP adapter runs the vnpy gateway in a separate thread pool and acts as a supervisor, restarting the thread upon disconnection (required by CTP's reconnection mechanism).
 * **Publisher-Subscriber Pattern**: This is the fundamental pattern for communication with downstream consumers via NATS, ensuring a high degree of decoupling.
 * **Configurable Serialization Strategy (Strategy Pattern)**: The service will use a configurable strategy for data serialization (Pickle for flexibility, Pydantic+JSON for standardization), allowing the system to adapt to different consumer needs.
+* **Runbook Automation Pattern**: Operational scripts encapsulate the startup, restart, and shutdown choreography so operators can execute repeatable playbooks with idempotent behavior.
+* **Observable Control Loop Pattern**: Subscription health agents feed metrics to Prometheus and trigger Grafana alerts, creating a closed loop between detection and remediation.
+* **Failover Playbook Pattern**: Primary/backup gateway wiring and configuration profiles enable rapid, low-risk failover without modifying core application code.
 
 ---
 
@@ -95,8 +114,10 @@ This table represents the definitive technology choices for the project. All dev
 | **IaC Tool** | **Docker Compose** | 2.24.x | **Standardized app stack deployment** | Provides service discovery and simplified management. |
 | **Logging** | Logging (Python Module) | 3.13 | Application logging | Python's built-in standard library. |
 | **Serialization** | Pickle / Pydantic+JSON | Configurable | Data transfer format | User-specified; balances flexibility and standards. |
-| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage (Post-MVP)** | Industry-standard open-source monitoring. |
-| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards (Post-MVP)** | Powerful visualization for Prometheus data. |
+| **Monitoring** | Prometheus | 2.51.x | Metrics collection & storage | Required for production operations; integrates with health agents. |
+| **Visualization & Alerting** | Grafana | 10.4.x | Dashboards and alert routing | Delivers runbook-ready insights and alerting automation. |
+| **Operational Automation** | Bash / Python CLI | N/A | Runbooks (`start_live_env.sh`, `check_feed_health.py`) | Provides repeatable orchestration and health remediation flows. |
+| **Secrets & Config Management** | `.env` + Vault-ready pattern | N/A | Live credential & rate-limit governance | Documents primary/backup accounts, supports secure storage upgrades. |
 
 ---
 
@@ -163,6 +184,18 @@ The architecture is divided into the following components, adhering to the Ports
 3. **NATS Publisher Adapter**
    * **Responsibility**: Implements the EventPublisherPort. It receives DomainTick objects from the core service, serializes them using the configurable strategy, and publishes them to the NATS JetStream cluster.
    * **Dependencies**: nats.py, Pydantic.
+4. **Operations Orchestrator**
+   * **Responsibility**: Automates lifecycle tasks through scripts such as `scripts/operations/start_live_env.sh`, sequencing NATS, the market-data-service, and subscription workers; captures command outcomes and exposes hooks for alert-driven retries.
+   * **Dependencies**: Bash, uv, Docker Compose, structured logging.
+5. **Subscription Health Agent**
+   * **Responsibility**: Executes scheduled checks (`scripts/operations/check_feed_health.py`) comparing active subscriptions against the expected contract universe, emitting structured reports and triggering remediation paths.
+   * **Dependencies**: Python CLI tooling, contract catalogue, Prometheus client.
+6. **Observability Exporters**
+   * **Responsibility**: Surface runtime metrics (throughput, coverage, latency, rate-limit events) to Prometheus and manage alert definitions consumed by Grafana dashboards.
+   * **Dependencies**: prometheus-client, Grafana provisioning templates.
+7. **Configuration Registry**
+   * **Responsibility**: Documents and validates environment variables for primary/backup accounts, rate-limit tuning, and failover routing; designed to plug into Vault or encrypted stores without altering code paths.
+   * **Dependencies**: `.env` files, Pydantic BaseSettings, optional secret backends.
 
 ### **Optimized Component Interaction Diagram**
 
@@ -170,13 +203,22 @@ Code snippet
 
 graph TD
     subgraph "Infrastructure (External)"
-        A\["vnpy CTP Gateway"\]
+        A\["Primary CTP Gateway"\]
+        A2\["Backup Feed / Alternate Source"\]
         E\["NATS JetStream Cluster"\]
     end
 
-    subgraph "Adapters (Infrastructure Layer)"
-        B\[CTP Gateway Adapter\]
-        D\[NATS Publisher Adapter\]
+    subgraph "Adapters & Ops Layer"
+        I\["Ops Orchestrator\n(start\_live\_env.sh)"\]
+        B\["CTP Gateway Adapter"\]
+        H\["Subscription Health Agent"\]
+        D\["NATS Publisher Adapter"\]
+        X\["Observability Exporters"\]
+        I \-- Bootstrap --> B
+        B \-- Heartbeat --> H
+        H \-- Recovery Hooks --> I
+        H \-- Metrics --> X
+        D \-- Publish Ack --> X
     end
 
     subgraph "Core App (Domain & App Layers)"
@@ -185,11 +227,20 @@ graph TD
         C{Core Application Service}
     end
 
+    subgraph "Operations & Insights"
+        P\["Prometheus"\]
+        G\["Grafana Alerts"\]
+        O\["Ops Engineer"\]
+    end
+
     A \-- "Raw Ticks" \--\> B
-    B \-- "Translate to DomainTick" \--\> C
-    C \-- "Execute Domain Logic (Validate)" \--\> C
+    A2 \-- "Failover Route" \--\> B
     C \-- "Publish DomainTick" \--\> D
-    D \-- "Serialize & Publish" \--\> E
+    D \-- "Publish Ticks" \--\> E
+    X \-- "Metric Samples" \--\> P
+    P \-- "Dashboards & Alerts" \--\> G
+    G \-- "Alert Actions" \--\> O
+    O \-- "Runbook Trigger" \--\> I
 
     style C fill:\#FFE4B5
 
@@ -227,6 +278,70 @@ sequenceDiagram
     NATS\_Cluster--\>\>-NATS\_Adapter: 8\. Ack
     NATS\_Adapter--\>\>-Core\_Service: 9\. Return Success
 
+### **Workflow: Live Environment Orchestration**
+
+Code snippet
+
+sequenceDiagram
+    participant Ops as Ops Engineer
+    participant Runbook as start\_live\_env.sh
+    participant Compose as Docker Compose
+    participant NATS as NATS Cluster
+    participant Service as Market Data Service
+    participant Subs as Subscription Worker
+    participant Prom as Prometheus
+
+    Ops-\>\>+Runbook: 1\. Execute runbook (pre-market)
+    Runbook-\>\>+Compose: 2\. docker compose up --profile live
+    Compose-\>\>+NATS: 3\. Start NATS live profile
+    Compose-\>\>+Service: 4\. Start market-data-service
+    Runbook-\>\>+Subs: 5\. Launch full\_feed\_subscription.py
+    Service-\>\>Runbook: 6\. Emit readiness / health log
+    Runbook-\>\>Prom: 7\. Register job status metrics
+    Runbook--\>\>-Ops: 8\. Summarize success / errors
+
+### **Workflow: Subscription Health Check & Recovery**
+
+Code snippet
+
+sequenceDiagram
+    participant Scheduler as Cron/Scheduler
+    participant Health as check\_feed\_health.py
+    participant Service as Market Data Service
+    participant Catalogue as Contract Catalogue
+    participant Prom as Prometheus
+    participant Ops as Ops Engineer
+
+    Scheduler-\>\>+Health: 1\. Invoke health script
+    Health-\>\>+Service: 2\. Fetch active subscription list
+    Health-\>\>Catalogue: 3\. Retrieve expected contract universe
+    Health-\>\>Health: 4\. Compare + detect gaps/latency issues
+    Health-\>\>Prom: 5\. Push metrics / anomalies
+    Prom-\>\>Ops: 6\. Fire Grafana alert (if thresholds breached)
+    Ops-\>\>Health: 7\. Trigger remediation (resubscribe / escalate)
+    Health--\>\>-Scheduler: 8\. Exit code reflects status
+
+### **Workflow: Feed Failover Drill**
+
+Code snippet
+
+sequenceDiagram
+    participant Ops as Ops Engineer
+    participant Runbook as start\_live\_env.sh (failover mode)
+    participant Config as Config Registry
+    participant Adapter as CTP Adapter
+    participant Backup as Backup Feed
+    participant Prom as Prometheus
+    participant Consumers as Downstream Subscribers
+
+    Ops-\>\>+Runbook: 1\. Invoke failover playbook
+    Runbook-\>\>Config: 2\. Load backup credentials/profile
+    Runbook-\>\>Adapter: 3\. Restart adapter with backup config
+    Adapter-\>\>Backup: 4\. Establish new feed session
+    Adapter-\>\>Consumers: 5\. Maintain outbound tick stream
+    Prom-\>\>Ops: 6\. Monitor latency / drop indicators
+    Ops--\>\>-Runbook: 7\. Confirm stability & log drill outcome
+
 ---
 
 ## **8\. REST API Spec**
@@ -252,6 +367,10 @@ market-data-service/
 │   └── workflows/
 │       └── ci.yml
 ├── docs/
+│   └── ops/
+│       ├── production-runbook.md
+│       ├── monitoring-dashboard.md
+│       └── subscription-check.md
 ├── src/
 │   ├── adapters/
 │   │   ├── ctp\_adapter.py
@@ -267,6 +386,11 @@ market-data-service/
 ├── tests/
 │   ├── integration/
 │   └── unit/
+├── scripts/
+│   └── operations/
+│       ├── start\_live\_env.sh
+│       ├── full\_feed\_subscription.py
+│       └── check\_feed\_health.py
 ├── .dockerignore
 ├── docker-compose.yml
 ├── Dockerfile
@@ -283,6 +407,31 @@ market-data-service/
 * **Method**: A single docker-compose.yml file, used with environment-specific .env files, will define the application stack for all environments to prevent configuration drift.
 * **Data Persistence**: Named volumes **must** be used for Prometheus and Grafana to persist monitoring data.
 
+### **Operational Automation & Runbooks**
+
+* **Primary Script**: `scripts/operations/start_live_env.sh` orchestrates pre-market startup, intra-day restarts, and controlled shutdown with structured logging and exit codes.
+* **Subscription Worker**: `scripts/operations/full_feed_subscription.py` now exposes CLI flags for rate limiting, retries, and health probes so runbooks can operate headlessly.
+* **Health Checks**: `scripts/operations/check_feed_health.py` produces machine-readable reports (JSON/exit status) for CI, cron, and manual execution.
+* **Scheduling**: Cron or systemd timers execute health checks and drill playbooks; each invocation registers metrics to Prometheus via pushgateway or direct client.
+
+### **Configuration & Secrets Governance**
+
+* **Environment Layout**: `.env.example` documents `CTP_PRIMARY_*`, `CTP_BACKUP_*`, rate-limit knobs, and monitoring toggles; production secrets stored in Vault-compatible secure stores.
+* **Validation**: Pydantic BaseSettings performs boot-time validation and surfaces misconfiguration errors to runbook logs and alerts.
+* **Rotation**: Credential rotation playbooks mirror failover drills to ensure downstream consumers remain unaffected.
+
+### **Monitoring & Alerting Integration**
+
+* **Metrics**: Prometheus scrapes the market-data-service, subscription workers, and runbook exporters for throughput, coverage, latency, and error counts.
+* **Dashboards**: Grafana dashboards bundle default panels (coverage gap heatmap, mps trend, rate-limit incidents) and ship with provisioning templates under version control.
+* **Alerts**: Grafana Alertmanager routes incidents to the ops channel; alerts reference runbook steps and link to remediation scripts.
+
+### **Failover & Recovery Strategy**
+
+* **Playbooks**: Dedicated failover mode in `start_live_env.sh` swaps credentials/config profiles and verifies recovery via health metrics.
+* **Downstream Assurance**: Alert rules watch consumer lag/backlog to confirm switchovers remain transparent to subscribers.
+* **Rollback**: Previous configuration snapshots and Docker image tags are retained so rollback equals re-running the runbook with last-known-good parameters.
+
 ### **Deployment Strategy**
 
 * **Strategy**: Script-based Docker Deployment.
@@ -295,7 +444,7 @@ market-data-service/
 
 ### **Rollback Strategy**
 
-* **Method**: Re-deploying the previously stable Docker image tag from GHCR.
+* **Method**: Re-deploying the previously stable Docker image tag from GHCR and reapplying the last-known-good configuration profile through the automation scripts.
 
 ---
 

@@ -21,6 +21,9 @@ x-common-env: &common-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   DEBUG: ${DEBUG:-false}
   PYTHONUNBUFFERED: 1
+  SUBSCRIBE_RATE_LIMIT_WINDOW_SECONDS: ${SUBSCRIBE_RATE_LIMIT_WINDOW_SECONDS:-60}
+  SUBSCRIBE_RATE_LIMIT_MAX_REQUESTS: ${SUBSCRIBE_RATE_LIMIT_MAX_REQUESTS:-50}
+  TICK_QUEUE_MAXSIZE: ${TICK_QUEUE_MAXSIZE:-50000}
 
 services:
   # NATS Message Broker
@@ -62,8 +65,12 @@ services:
       NATS_CLIENT_ID: ${NATS_CLIENT_ID:-market-data-service-1}
       NATS_USER: ${NATS_USER:-}
       NATS_PASSWORD: ${NATS_PASSWORD:-}
+      INGEST_METRICS_HOST: ${INGEST_METRICS_HOST:-0.0.0.0}
+      INGEST_METRICS_PORT: ${INGEST_METRICS_PORT:-9100}
     depends_on:
       - nats
+    ports:
+      - "${INGEST_METRICS_PORT:-9100}:9100"
     healthcheck: *service-healthcheck
     volumes:
       # Logs directory (safe to mount in all envs)
@@ -124,6 +131,52 @@ services:
           memory: ${SERVICE_LIVE_MEMORY_RESERVE:-1G}
     profiles: ["live"]
 
+  subscription-worker:
+    container_name: ${SUBSCRIPTION_CONTAINER_NAME:-subscription-worker}
+    image: ${SERVICE_IMAGE:-market-data-service:local}
+    entrypoint:
+      - python
+      - scripts/operations/full_feed_subscription.py
+      - --env-file
+      - /app/.subscription.env
+      - --window
+      - ${SESSION_WINDOW:-day}
+      - --config
+      - ${SESSION_CONFIG:-primary}
+      - --metrics-host
+      - 0.0.0.0
+      - --metrics-port
+      - ${SUBSCRIPTION_METRICS_PORT:-9101}
+    environment:
+      <<: *common-env
+      SESSION_WINDOW: ${SESSION_WINDOW:-day}
+      SESSION_CONFIG: ${SESSION_CONFIG:-primary}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_USER: ${NATS_USER:-}
+      NATS_PASSWORD: ${NATS_PASSWORD:-}
+      PUSHGATEWAY_URL: ${PUSHGATEWAY_URL:-http://pushgateway:9091}
+      SUBSCRIPTION_METRICS_HOST: 0.0.0.0
+      SUBSCRIPTION_METRICS_PORT: ${SUBSCRIPTION_METRICS_PORT:-9101}
+    volumes:
+      - ${SUBSCRIPTION_ENV_FILE:-./.env}:/app/.subscription.env:ro
+    depends_on:
+      - nats
+      - pushgateway
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SUBSCRIPTION_METRICS_PORT:-9101}/metrics', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    profiles: ["live"]
+
   # Monitoring - NATS Prometheus Exporter (optional)
   nats-exporter:
     image: natsio/prometheus-nats-exporter:${EXPORTER_VERSION:-latest}
@@ -141,8 +194,37 @@ services:
     restart: ${RESTART_POLICY:-unless-stopped}
     profiles: ["monitoring"]  # Only starts when --profile monitoring is used
 
+  pushgateway:
+    image: prom/pushgateway:${PUSHGATEWAY_VERSION:-latest}
+    container_name: ${PUSHGATEWAY_CONTAINER_NAME:-pushgateway}
+    ports:
+      - "${PUSHGATEWAY_PORT:-9091}:9091"
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles: ["monitoring", "live"]
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v2.51.0}
+    container_name: ${PROMETHEUS_CONTAINER_NAME:-prometheus}
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - pushgateway
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles: ["monitoring", "live"]
+
 volumes:
   nats-data:
+  prometheus-data:
 
 networks:
   market-data-network:

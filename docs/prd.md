@@ -4,6 +4,7 @@
 
 | Date  日期 | Version  版本 | Description  描述 | Author  作者 |
 | :---- | :---- | :---- | :---- |
+| 2025-09-18 | 1.1 | Production ops & multi-source expansion 生产运维与多源扩展 | PM (John)  总理（约翰） |
 | 2025-09-02 | 1.0 | Initial draft and finalization 初稿和定稿 | PM (John)  总理（约翰） |
 
 ## **Goals and Background Context**
@@ -62,6 +63,31 @@ This project aims to solve the integration challenge between the company's synch
   **NFR6** ：服务必须提供连接状态、错误和关键操作的基本日志记录。
 * **NFR7 (Extensibility)**: The architecture must define a generic "Gateway Adapter" port (interface). The CTP gateway integration will be the first implementation of this port, ensuring that other gateways (like SOPT) can be added in the future with minimal changes to the core application logic.
   **NFR7（可扩展性）** ：架构必须定义一个通用的“网关适配器”端口（接口）。CTP 网关集成将是该端口的首次实现，以确保将来能够在核心应用程序逻辑改动最小的情况下添加其他网关（如 SOPT）。
+* **NFR8 (Operational Readiness)**: The MVP must deliver documented runbooks and automation that cover pre-market startup, intra-day restarts, and safe shutdown of NATS, the market-data-service, and subscription workers with success/error logging.
+  **NFR8（运营就绪）** ：MVP 必须交付文档化的运行手册与自动化能力，覆盖盘前启动、盘中重启以及 NATS、market-data-service 和订阅工作器的安全停机，并具备成功/错误日志记录。
+* **NFR9 (Observability & Alerting)**: Core operational metrics (subscription coverage, throughput, latency, rate-limit triggers, error counts) must be exported and visualized via dashboards with configurable alert thresholds.
+  **NFR9（可观测性与告警）** ：核心运维指标（订阅覆盖率、吞吐量、延迟、速率限制触发、错误计数）必须导出并通过仪表盘可视化，且支持可配置的告警阈值。
+* **NFR10 (Multi-Account Resilience)**: Configuration patterns for primary and backup market data accounts or providers must be documented, with tested failover procedures that minimize downstream disruption.
+  **NFR10（多账户弹性）** ：必须文档化主备行情账户或数据源的配置模式，并具备经过演练的故障切换流程，以尽量减少对下游的影响。
+
+### **MVP Operational Scope Update**
+
+**MVP 运营范围更新**
+
+To be considered MVP-complete, the service must provide:
+
+被视为完成 MVP，服务必须提供：
+
+- Repeatable runbooks and scripts for daily startup/shutdown and emergency recovery of the live topology.
+  为实时拓扑提供可重复执行的每日启动/停机及紧急恢复运行手册和脚本。
+- Monitoring dashboards and alerts that expose subscription coverage, throughput, latency, and error conditions in real time.
+  提供实时展示订阅覆盖率、吞吐量、延迟和错误状况的监控仪表盘与告警。
+- A subscription workflow that supports batch operations, rate limiting, and health checks to detect missing contracts or throttling incidents.
+  具备支持批量操作、速率限制及健康检查的订阅流程，以检测缺失合约或限流事件。
+- Documented procedures for multi-account routing and failover drills that keep downstream consumers stable.
+  文档化多账户路由与故障切换演练流程，确保下游消费者保持稳定。
+- Technical placeholders that keep SOPT and additional market sources feasible after Epic 3 is delivered.
+  预留技术空间，使史诗 3 完成后能够继续扩展到 SOPT 及其他行情源。
 
 ### **Post-MVP Reliability Requirements**
 
@@ -213,6 +239,58 @@ ACs ：集成测试启动完整的应用程序；使用模拟 vnpy 网关发出�
 As a Tech Lead, I want the service to be able to query all available contracts, subscribe to the entire market feed, and process the full data stream under live trading conditions, so that I can validate it meets our 5,000 messages/second performance target.
 ACs: New RPC methods added for querying all contracts and bulk subscribing; service is deployed against a live, full-feed market data account; a test client subscribes to all instruments; service remains stable under full load for 1 hour of peak trading; throughput is measured and must meet or exceed 5,000 mps.作为技术主管， 我希望该服务能够查询所有可用的合约、订阅整个市场信息并在实时交易条件下处理完整的数据流， 以便我可以验证它是否符合我们每秒 5,000 条消息的性能目标。
 ACs ：添加了用于查询所有合约和批量订阅的新 RPC 方法；服务针对实时、全程市场数据账户进行部署；测试客户端订阅所有工具；服务在高峰交易 1 小时的满负荷下保持稳定；吞吐量经过测量，必须达到或超过 5,000 mps。
+
+### **Epic 3: Production Operations & Multi-Source Expansion**
+
+**史诗 3：生产运维与多源扩展**
+
+**Goal**: Deliver a production-ready operational layer—covering automation, observability, and resilience—that keeps the CTP market data feed reliable while preparing the stack for additional accounts and sources such as SOPT.
+
+**目标** ：交付生产就绪的运维层，覆盖自动化、可观测性与弹性，确保 CTP 行情流稳定，同时为包括 SOPT 在内的额外账户与数据源做好技术准备。
+
+#### **Story 3.1: Production Environment Orchestration**
+
+**故事 3.1：生产环境编排**
+
+As an Operations Engineer, I want automated scripts and documented runbooks that sequence the live environment startup and shutdown, so that pre-market preparations and emergency recoveries are repeatable and auditable.
+ACs: Runbook outlines daily pre-market startup, intra-day restart, and end-of-day shutdown; `scripts/operations/start_live_env.sh` sequences NATS, market-data-service, and subscription workers with status output; failure handling paths are documented for each step.作为运维工程师， 我需要自动化脚本和文档化的运行手册来串联实时环境的启动与停机， 以便盘前准备和应急恢复可重复且可审计。验收标准：运行手册涵盖盘前启动、盘中重启、日终关停；`scripts/operations/start_live_env.sh` 按顺序启动 NATS、market-data-service、订阅工作器并输出状态；每个步骤都文档化失败处理路径。
+
+#### **Story 3.2: Environment Variables & Secrets Governance**
+
+**故事 3.2：环境变量与秘密管理治理**
+
+As a Platform Engineer, I want a governed configuration scheme for live credentials, rate limits, and routing parameters, so that multiple accounts can be managed safely across environments.
+ACs: `.env.example` documents primary/backup account variables and rate-limit tuning knobs; guidance for secure secret storage (e.g., Vault, encrypted files) is added to the PRD/architecture; validation steps ensure misconfigured credentials are detected before startup.作为平台工程师， 我需要一套受控的线上凭证、速率限制和路由参数配置方案， 以便在多个环境中安全管理多账户。验收标准：`.env.example` 文档化主备账户变量与限流调节项；PRD/架构补充安全存储建议（如 Vault、加密文件）；提供验证步骤以在启动前检测错误配置。
+
+#### **Story 3.3: Market Data Monitoring Dashboards**
+
+**故事 3.3：行情监控与告警仪表盘**
+
+As a DevOps Engineer, I want dashboards and alerts for core feed metrics, so that we can detect coverage gaps, latency spikes, or rate-limit incidents in real time.
+ACs: Prometheus scrape targets or exporters defined for the market-data-service and subscription scripts; Grafana dashboard template captures subscription coverage, messages-per-second, latency percentiles, error counts, and rate-limit triggers; alert thresholds and notification channels documented for sustained anomalies.作为 DevOps 工程师， 我需要针对核心行情指标的仪表盘与告警， 以便实时发现覆盖缺口、延迟波动或限流事件。验收标准：为 market-data-service 与订阅脚本定义 Prometheus 采集目标或 exporter；Grafana 仪表盘模板展示订阅覆盖率、每秒消息数、延迟分位数、错误计数和限流触发；文档化持续异常的告警阈值和通知渠道。
+
+#### **Story 3.4: Subscription Health Checks & Recovery**
+
+**故事 3.4：订阅健康检查与恢复机制**
+
+As a Market Data SRE, I want automated checks that compare actual subscriptions against the expected contract universe, so that missing instruments or stalled feeds are remediated quickly.
+ACs: `scripts/operations/check_feed_health.py` lists missing or stalled contracts with exit codes for CI/automation; health reports can run in read-only mode without disrupting live traffic; runbook or automation triggers resubscription or operator escalation when anomalies persist.作为行情 SRE， 我需要自动校验实际订阅与期望合约全集的机制， 以便快速修复缺失合约或停滞的数据流。验收标准：`scripts/operations/check_feed_health.py` 列出缺失或停滞合约并通过退出码供 CI/自动化使用；健康检查可在只读模式下运行且不影响实时流量；运行手册或自动化在异常持续时触发重新订阅或人工升级。
+
+#### **Story 3.5: Multi-Account & Feed Failover Readiness**
+
+**故事 3.5：多账户与行情源故障切换准备**
+
+As a Tech Lead, I want documented and tested procedures for swapping to backup CTP accounts or alternate feeds, so that downtime and downstream disruptions are minimized during incidents.
+ACs: Configuration supports primary/backup credentials with clear routing precedence; failover drill documented with expected operator actions and rollback steps; monitoring hooks confirm downstream consumers remain stable during switchovers.作为技术主管， 我需要文档化且经过演练的主备账户或备用数据源切换流程， 以便事故期间最小化停机和对下游的影响。验收标准：配置支持主备凭证并具有明确的路由优先级；故障切换演练文档化预期操作步骤与回滚方案；监控钩子验证切换期间下游消费者保持稳定。
+
+#### **Future Story Seeds**
+
+**后续故事种子**
+
+- Story 3.6: Monitoring UI for dashboards if a dedicated front-end is required.
+  故事 3.6：如需独立前端，则实现仪表盘可视化界面。
+- Story 3.7: SOPT or additional market source integration once production operations are stable.
+  故事 3.7：生产运维稳定后接入 SOPT 或其他行情源。
 
 ## **Checklist Results Report  核对清单结果报告**
 

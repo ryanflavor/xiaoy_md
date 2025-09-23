@@ -151,7 +151,7 @@ class AdapterRuntimeOptions:
     retry_policy: RetryPolicy | None = None
     executor: ThreadPoolExecutor | None = None
     sleep_fn: Callable[[float], None] = time.sleep
-    tick_queue_maxsize: int = 1_000
+    tick_queue_maxsize: int = 10_000
 
 
 class CTPGatewayAdapter(MarketDataPort):
@@ -179,6 +179,14 @@ class CTPGatewayAdapter(MarketDataPort):
                     "tick_queue_maxsize", options.tick_queue_maxsize
                 ),
             )
+        desired_queue_size = getattr(self.settings, "tick_queue_maxsize", None)
+        if desired_queue_size is not None:
+            try:
+                queue_size_int = int(desired_queue_size)
+            except (TypeError, ValueError):
+                queue_size_int = None
+            if queue_size_int is not None and queue_size_int > 0:
+                options.tick_queue_maxsize = queue_size_int
         self.retry_policy = options.retry_policy or RetryPolicy()
         # Lazily create executor to avoid lingering threads in unit tests
         self.executor: ThreadPoolExecutor | None = options.executor
@@ -543,6 +551,15 @@ class CTPGatewayAdapter(MarketDataPort):
             return int(self._tick_queue.maxsize)
         except Exception:  # noqa: BLE001
             return 0
+
+    @property
+    def tick_queue(self) -> asyncio.Queue[MarketTick]:
+        """Expose the underlying tick queue (testing and instrumentation only)."""
+        return self._tick_queue
+
+    def replace_tick_queue_for_testing(self, queue: asyncio.Queue[MarketTick]) -> None:
+        """Swap the internal tick queue; intended for unit tests."""
+        self._tick_queue = queue
 
     # ---- Live connector hook placeholders (wired in Story 2.4.3) ----
     async def _subscribe_live_hook(self, _symbol: str, _exchange: str) -> None:

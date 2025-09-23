@@ -1,0 +1,44 @@
+
+schema: 1
+story: '3.5'
+story_title: 'Multi-Account & Feed Failover Readiness'
+gate: PASS
+status_reason: 'Failover automation now validates/rolls back safely, and drill metrics are scoped to the active feed/account.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-09-23T10:34:13.287031+08:00'
+
+top_issues: []
+
+waiver:
+  active: false
+
+quality_score: 100
+expires: '2025-10-07T10:34:18.390763+08:00'
+
+evidence:
+  tests_reviewed: 5
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Credential handling remains masked via AppSettings and runbook usage.'
+  performance:
+    status: PASS
+    notes: 'No additional latency sources introduced; metrics filters operate in-memory.'
+  reliability:
+    status: PASS
+    notes: 'Failover/failback rollback safeguards keep service available during credential issues.'
+  maintainability:
+    status: PASS
+    notes: 'Runbook/tooling updates document new selectors and testing workflow.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Automate periodic drill execution in CI to keep failover readiness observable.'
+      refs:
+        - scripts/operations/run_drill_tests.sh

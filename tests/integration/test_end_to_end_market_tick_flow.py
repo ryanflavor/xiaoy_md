@@ -25,7 +25,7 @@ from typing import Any
 import nats
 import pytest
 
-from src.application.services import MarketDataService
+from src.application.services import MarketDataService, ServiceDependencies
 from src.config import AppSettings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher
@@ -200,7 +200,9 @@ async def test_end_to_end_market_tick_flow(nats_container):
     adapter.symbol_contract_map[base_symbol] = object()
     adapter.symbol_contract_map[vt_symbol] = object()
 
-    service = MarketDataService(market_data_port=adapter, publisher_port=publisher)
+    service = MarketDataService(
+        ports=ServiceDependencies(market_data=adapter, publisher=publisher)
+    )
 
     # Act
     nc = await nats.connect(nats_url)

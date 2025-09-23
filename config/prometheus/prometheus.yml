@@ -1,0 +1,29 @@
+# Prometheus configuration for market data observability
+# Aligns with docs/architecture/observability-and-ops.md
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "market-data-service"
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - "market-data-service:9100"
+        labels:
+          component: "market-data-service"
+
+  - job_name: "subscription-workers"
+    scrape_interval: 60s
+    static_configs:
+      - targets:
+          - "subscription-worker:9101"
+        labels:
+          component: "subscription-worker"
+
+  - job_name: "pushgateway"
+    honor_labels: true
+    static_configs:
+      - targets:
+          - "pushgateway:9091"

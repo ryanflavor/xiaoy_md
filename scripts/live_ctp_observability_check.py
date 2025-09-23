@@ -28,7 +28,11 @@ from typing import Any, cast
 
 import nats
 
-from src.application.services import MarketDataService, MetricsConfig
+from src.application.services import (
+    MarketDataService,
+    MetricsConfig,
+    ServiceDependencies,
+)
 from src.config import AppSettings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher
@@ -150,8 +154,10 @@ async def _amain(duration: int) -> int:  # noqa: PLR0915 - sequential orchestrat
 
     # Compose service with shorter reporter window (faster sampling for test)
     service = MarketDataService(
-        market_data_port=adapter,
-        publisher_port=publisher,
+        ports=ServiceDependencies(
+            market_data=adapter,
+            publisher=publisher,
+        ),
         metrics=MetricsConfig(
             window_seconds=MPS_WINDOW_SECONDS,
             report_interval_seconds=MPS_WINDOW_SECONDS,

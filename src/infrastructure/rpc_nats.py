@@ -37,6 +37,7 @@ class NATSRPCServer:
 
     CONTRACTS_LIST_SUBJECT = "md.contracts.list"
     SUBSCRIBE_BULK_SUBJECT = "md.subscribe.bulk"
+    SUBSCRIPTIONS_ACTIVE_SUBJECT = "md.subscriptions.active"
 
     def __init__(self, settings: Any, service: Any, adapter: Any | None) -> None:
         """Create RPC server with collaborators.
@@ -85,6 +86,17 @@ class NATSRPCServer:
 
         sub2 = await self._nc.subscribe(self.SUBSCRIBE_BULK_SUBJECT, cb=_bulk_handler)
         self._subscriptions.append(_RpcSubscription(self.SUBSCRIBE_BULK_SUBJECT, sub2))
+
+        async def _active_handler(msg: Any) -> None:
+            payload = await self._handle_active_subscriptions()
+            await msg.respond(json.dumps(payload).encode())
+
+        sub3 = await self._nc.subscribe(
+            self.SUBSCRIPTIONS_ACTIVE_SUBJECT, cb=_active_handler
+        )
+        self._subscriptions.append(
+            _RpcSubscription(self.SUBSCRIPTIONS_ACTIVE_SUBJECT, sub3)
+        )
 
         logger.info(
             "rpc_listeners_ready",
@@ -216,6 +228,42 @@ class NATSRPCServer:
 
         ts = datetime.now(CHINA_TZ).isoformat()
         return {"accepted": accepted, "rejected": rejected, "ts": ts}
+
+    async def _handle_active_subscriptions(self) -> dict[str, Any]:
+        """Handle md.subscriptions.active requests."""
+        ts = datetime.now(CHINA_TZ).isoformat()
+
+        if not hasattr(self._service, "list_active_subscriptions"):
+            logger.warning("active_subscriptions_not_supported")
+            return {
+                "subscriptions": [],
+                "total": 0,
+                "ts": ts,
+                "source": "unsupported",
+            }
+
+        try:
+            data = await self._service.list_active_subscriptions()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "active_subscriptions_error",
+                exc_info=True,
+                extra={"error": str(exc)},
+            )
+            return {
+                "subscriptions": [],
+                "total": 0,
+                "ts": ts,
+                "source": "error",
+                "error": str(exc),
+            }
+
+        return {
+            "subscriptions": data,
+            "total": len(data),
+            "ts": ts,
+            "source": "market-data-service",
+        }
 
 
 async def _maybe_await(value: Any) -> Any:

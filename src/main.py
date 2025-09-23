@@ -21,7 +21,15 @@ from pathlib import Path
 import signal
 from typing import Any, cast
 
-from src.application.services import MarketDataService, RateLimitConfig
+from src.application.observability import (
+    IngestMetricLabels,
+    PrometheusMetricsExporter,
+)
+from src.application.services import (
+    MarketDataService,
+    RateLimitConfig,
+    ServiceDependencies,
+)
 from src.config import AppSettings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher
@@ -150,9 +158,24 @@ async def _run() -> int:
 
     # Compose service graph: adapter + NATSPublisher via MarketDataService
     publisher = NATSPublisher(settings)
+    metrics_exporter: PrometheusMetricsExporter | None = None
+    if settings.enable_ingest_metrics:
+        start_http = os.environ.get("PYTEST_CURRENT_TEST") is None
+        metrics_exporter = PrometheusMetricsExporter(
+            host=settings.ingest_metrics_host,
+            port=settings.ingest_metrics_port,
+            labels=IngestMetricLabels(
+                feed=settings.resolved_metrics_feed(),
+                account=settings.resolved_metrics_account(),
+            ),
+            start_http=start_http,
+        )
     service = MarketDataService(
-        market_data_port=adapter,
-        publisher_port=publisher,
+        ports=ServiceDependencies(
+            market_data=adapter,
+            publisher=publisher,
+            metrics_exporter=metrics_exporter,
+        ),
         rate_limits=RateLimitConfig(
             window_seconds=settings.subscribe_rate_limit_window_seconds,
             max_requests=settings.subscribe_rate_limit_max_requests,

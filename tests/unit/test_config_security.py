@@ -8,10 +8,10 @@ class TestConfigurationSecurity:
 
     def test_to_dict_safe_masks_nats_url(self):
         """Test that NATS URL is masked in safe output."""
-        settings = AppSettings(
+        settings = AppSettings.model_construct(
             nats_url="nats://secret-host:4222",
-            nats_cluster_id="cluster-123",
-            nats_client_id="client-456",
+            nats_cluster_id="secret-cluster-id",
+            nats_client_id="secret-client-id",
         )
         safe_dict = settings.to_dict_safe()
 
@@ -20,7 +20,9 @@ class TestConfigurationSecurity:
 
     def test_to_dict_safe_masks_cluster_id(self):
         """Test that cluster ID is masked in safe output."""
-        settings = AppSettings(nats_cluster_id="secret-cluster-id")
+        settings = AppSettings.model_construct(
+            nats_cluster_id="secret-cluster-id",
+        )
         safe_dict = settings.to_dict_safe()
 
         assert safe_dict["nats_cluster_id"] == "secr...id"
@@ -28,7 +30,9 @@ class TestConfigurationSecurity:
 
     def test_to_dict_safe_masks_client_id(self):
         """Test that client ID is masked in safe output."""
-        settings = AppSettings(nats_client_id="secret-client-id")
+        settings = AppSettings.model_construct(
+            nats_client_id="secret-client-id",
+        )
         safe_dict = settings.to_dict_safe()
 
         assert safe_dict["nats_client_id"] == "secr...id"
@@ -36,8 +40,10 @@ class TestConfigurationSecurity:
 
     def test_to_dict_safe_short_values(self):
         """Test that short sensitive values are fully masked."""
-        settings = AppSettings(
-            nats_url="nats", nats_cluster_id="abc", nats_client_id="xyz"
+        settings = AppSettings.model_construct(
+            nats_url="nats",
+            nats_cluster_id="abc",
+            nats_client_id="xyz",
         )
         safe_dict = settings.to_dict_safe()
 
@@ -47,7 +53,7 @@ class TestConfigurationSecurity:
 
     def test_to_dict_safe_preserves_non_sensitive(self):
         """Test that non-sensitive fields are not masked."""
-        settings = AppSettings(
+        settings = AppSettings.model_construct(
             app_name="test-app",
             app_version="1.2.3",
             environment="production",
@@ -64,7 +70,7 @@ class TestConfigurationSecurity:
 
     def test_to_dict_returns_full_values(self):
         """Test that regular to_dict returns full values."""
-        settings = AppSettings(
+        settings = AppSettings.model_construct(
             nats_url="nats://secret-host:4222",
             nats_cluster_id="cluster-123",
             nats_client_id="client-456",

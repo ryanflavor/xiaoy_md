@@ -16,6 +16,16 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from prometheus_client import (
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    generate_latest,
+    start_http_server,
+)
+
+from src.config import AppSettings
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
 
@@ -50,6 +60,8 @@ class WorkflowSummary:
     contract_file: Path
     output_dir: Path
     total_symbols: int
+    session_window: str = "day"
+    config_profile: str = "primary"
     processed_symbols: list[str] = field(default_factory=list)
     accepted_symbols: list[str] = field(default_factory=list)
     rejected_items: list[dict[str, str]] = field(default_factory=list)
@@ -62,6 +74,8 @@ class WorkflowSummary:
             "contract_file": str(self.contract_file),
             "output_dir": str(self.output_dir),
             "total_symbols": self.total_symbols,
+            "session_window": self.session_window,
+            "config_profile": self.config_profile,
             "accepted_count": len(self.accepted_symbols),
             "rejected_count": len(self.rejected_items),
             "skipped_count": len(self.skipped_symbols),
@@ -71,6 +85,76 @@ class WorkflowSummary:
             "skipped_symbols": self.skipped_symbols,
             "batches": [batch.to_dict() for batch in self.batches],
         }
+
+
+@dataclass(slots=True)
+class SubscriptionMetricsLabels:
+    """Label values used by the subscription metrics exporter."""
+
+    feed: str
+    account: str
+    session_window: str
+
+
+class SubscriptionMetricsExporter:
+    """Expose subscription workflow metrics via Prometheus."""
+
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        labels: SubscriptionMetricsLabels,
+        registry: CollectorRegistry | None = None,
+        start_http: bool = True,
+    ) -> None:
+        """Initialize exporter with networking endpoints and label metadata."""
+        self._labels = {
+            "feed": labels.feed,
+            "account": labels.account,
+            "session_window": labels.session_window,
+        }
+        self._registry = registry or CollectorRegistry()
+        self._coverage_gauge = Gauge(
+            "md_subscription_coverage_ratio",
+            "Ratio of accepted subscriptions versus requested symbols",
+            ("feed", "account", "session_window"),
+            registry=self._registry,
+        )
+        self._rate_limit_counter = Counter(
+            "md_rate_limit_hits",
+            "Total number of rate limit hits encountered by subscription workflow",
+            ("feed", "account", "session_window"),
+            registry=self._registry,
+        )
+
+        if start_http:
+            try:
+                start_http_server(port, addr=host, registry=self._registry)
+                logging.getLogger(__name__).info(
+                    "Subscription metrics exporter online",
+                    extra={"host": host, "port": port},
+                )
+            except OSError as exc:
+                logging.getLogger(__name__).warning(
+                    "subscription_metrics_start_failed",
+                    extra={"host": host, "port": port, "error": str(exc)},
+                )
+
+    def observe_coverage(self, ratio: float) -> None:
+        """Set coverage ratio gauge bounded within [0, 1]."""
+        value = max(0.0, min(ratio, 1.0))
+        self._coverage_gauge.labels(**self._labels).set(value)
+
+    def increment_rate_limit(self, count: int = 1) -> None:
+        """Increment rate limit counter."""
+        if count <= 0:
+            return
+        self._rate_limit_counter.labels(**self._labels).inc(count)
+
+    def scrape(self) -> bytes:
+        """Return registry exposition for testing."""
+        return generate_latest(self._registry)
 
 
 class RpcResponseDecodeError(ValueError):
@@ -291,8 +375,29 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
 ) -> WorkflowSummary:
     from nats.aio.client import Client as NATSClient
 
+    settings = AppSettings()
     out_dir = _ensure_output_dir(Path(args.output_dir))
+    feed_label = settings.resolved_metrics_feed()
+    if feed_label == "auto":
+        feed_label = args.config
+    account_label = settings.resolved_metrics_account()
+
+    os.environ["ACTIVE_FEED"] = feed_label
+    os.environ["ACTIVE_ACCOUNT_MASK"] = account_label
+
     logger.info("Output directory: %s", out_dir)
+    logger.info(
+        json.dumps(
+            {
+                "event": "subscription_context",
+                "session_window": args.window,
+                "config": args.config,
+                "feed": feed_label,
+                "account": account_label,
+            },
+            ensure_ascii=False,
+        )
+    )
 
     nc = NATSClient()
     options: dict[str, Any] = {
@@ -335,9 +440,26 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
             contract_file=contracts_path,
             output_dir=out_dir,
             total_symbols=len(filtered),
+            session_window=args.window,
+            config_profile=args.config,
         )
         summary.processed_symbols = filtered
         summary.skipped_symbols = skipped_ampersand
+
+        metrics_exporter: SubscriptionMetricsExporter | None = None
+        if args.metrics_port and args.metrics_port > 0:
+            start_http = os.environ.get("PYTEST_CURRENT_TEST") is None
+            metrics_exporter = SubscriptionMetricsExporter(
+                host=args.metrics_host,
+                port=args.metrics_port,
+                labels=SubscriptionMetricsLabels(
+                    feed=feed_label,
+                    account=account_label,
+                    session_window=args.window,
+                ),
+                start_http=start_http,
+            )
+            metrics_exporter.observe_coverage(0.0)
 
         if skipped_ampersand:
             skipped_path = out_dir / "skipped_ampersand.json"
@@ -363,6 +485,7 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
         accepted_set: set[str] = set()
         retry_counts: dict[str, int] = {}
         batch_index = 0
+        rate_limit_hits_total = 0
 
         while pending:
             batch_symbols: list[str] = []
@@ -436,6 +559,9 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
                 )
 
             if rate_limited:
+                rate_limit_hits_total += len(rate_limited)
+                if metrics_exporter is not None:
+                    metrics_exporter.increment_rate_limit(len(rate_limited))
                 if args.rate_limit_retry_delay > 0:
                     logger.info(
                         "Rate limited for %s symbols; retrying after %.1fs",
@@ -459,6 +585,21 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
             encoding="utf-8",
         )
         logger.info("Summary written -> %s", summary_path)
+
+        if metrics_exporter is not None:
+            coverage_ratio = (
+                len(summary.accepted_symbols) / summary.total_symbols
+                if summary.total_symbols
+                else 0.0
+            )
+            metrics_exporter.observe_coverage(coverage_ratio)
+            logger.info(
+                "Metrics exported",
+                extra={
+                    "coverage_ratio": round(coverage_ratio, 4),
+                    "rate_limit_hits": rate_limit_hits_total,
+                },
+            )
         return summary
     finally:
         with contextlib.suppress(Exception):
@@ -498,7 +639,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=200,
+        default=20000,
         help="Number of symbols per bulk subscribe request",
     )
     parser.add_argument(
@@ -523,25 +664,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rate-limit-window",
         type=float,
-        default=float(os.getenv("SUBSCRIBE_RATE_LIMIT_WINDOW_SECONDS", "0") or 0.0),
+        default=float(os.getenv("SUBSCRIBE_RATE_LIMIT_WINDOW_SECONDS", "2") or 2.0),
         help="Rate limit window seconds (0 disables client-side throttling)",
     )
     parser.add_argument(
         "--rate-limit-max",
         type=int,
-        default=int(os.getenv("SUBSCRIBE_RATE_LIMIT_MAX_REQUESTS", "0") or 0),
+        default=int(os.getenv("SUBSCRIBE_RATE_LIMIT_MAX_REQUESTS", "50000") or 50000),
         help="Max operations per window (0 disables client-side throttling)",
     )
     parser.add_argument(
         "--rate-limit-retry-delay",
         type=float,
-        default=5.0,
+        default=0.2,
         help="Delay before retrying symbols rejected with rate limit",
     )
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=10,
+        default=3,
         help="Max retries for rate-limited symbols (0 = unlimited)",
     )
     parser.add_argument(
@@ -559,6 +700,34 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--window",
+        choices=("day", "night"),
+        default=os.getenv("SESSION_WINDOW", "day"),
+        help="Trading session window (day/night) for logging and artifacts",
+    )
+    parser.add_argument(
+        "--config",
+        choices=("primary", "backup"),
+        default=os.getenv("SESSION_CONFIG", "primary"),
+        help="Configuration profile label (primary/backup) for this run",
+    )
+    parser.add_argument(
+        "--metrics-host",
+        default=os.getenv("SUBSCRIPTION_METRICS_HOST", "0.0.0.0"),  # nosec B104
+        help="Host interface for Prometheus metrics exporter",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=int(os.getenv("SUBSCRIPTION_METRICS_PORT", "9101") or 0),
+        help="Port for Prometheus metrics exporter (0 disables)",
+    )
+    parser.add_argument(
+        "--metrics-disable",
+        action="store_true",
+        help="Disable Prometheus metrics exporter",
+    )
     return parser
 
 
@@ -567,6 +736,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _load_env_file(Path(args.env_file))
+
+    if args.metrics_disable:
+        args.metrics_port = 0
+    elif args.metrics_port < 0:
+        parser.error("--metrics-port must be >= 0")
+
+    # Propagate session metadata to environment for downstream tooling.
+    os.environ["SESSION_WINDOW"] = args.window
+    os.environ["SESSION_CONFIG"] = args.config
 
     nats_url = _normalize_nats_url(
         args.nats_url or os.getenv("NATS_URL", "nats://127.0.0.1:4222")
@@ -592,6 +770,8 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "BatchResult",
     "RateLimiter",
+    "SubscriptionMetricsExporter",
+    "SubscriptionMetricsLabels",
     "WorkflowSummary",
     "build_parser",
     "main",

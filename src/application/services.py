@@ -5,13 +5,16 @@ domain logic and coordinate between different ports.
 """
 
 import asyncio
-from collections import deque
+from collections import defaultdict, deque
 import contextlib
 from dataclasses import dataclass
+from datetime import datetime
 import logging
+import math
 import time
 from zoneinfo import ZoneInfo
 
+from src.application.observability import PrometheusMetricsExporter
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
@@ -47,6 +50,14 @@ class MetricsConfig:
     report_interval_seconds: float | None = None
 
 
+@dataclass(slots=True)
+class ServiceDependencies:
+    market_data: MarketDataPort | None = None
+    publisher: MessagePublisherPort | None = None
+    repository: DataRepositoryPort | None = None
+    metrics_exporter: PrometheusMetricsExporter | None = None
+
+
 class MarketDataService:
     """Application service for handling market data operations.
 
@@ -60,27 +71,20 @@ class MarketDataService:
 
     def __init__(
         self,
-        market_data_port: MarketDataPort | None = None,
-        publisher_port: MessagePublisherPort | None = None,
-        repository_port: DataRepositoryPort | None = None,
         *,
+        ports: ServiceDependencies | None = None,
         rate_limits: RateLimitConfig | None = None,
         metrics: MetricsConfig | None = None,
-    ):
-        """Initialize the market data service with optional ports.
-
-        Args:
-            market_data_port: Port for receiving market data.
-            publisher_port: Port for publishing messages.
-            repository_port: Port for data persistence.
-            rate_limits: Optional rate limit overrides.
-            metrics: Optional metrics reporting configuration.
-
-        """
-        self.market_data_port = market_data_port
-        self.publisher_port = publisher_port
-        self.repository_port = repository_port
+    ) -> None:
+        """Initialize the market data service with optional dependencies."""
+        dependencies = ports or ServiceDependencies()
+        self.market_data_port = dependencies.market_data
+        self.publisher_port = dependencies.publisher
+        self.repository_port = dependencies.repository
         self._subscriptions: dict[str, MarketDataSubscription] = {}
+        self._subscription_symbol_by_id: dict[str, str] = {}
+        self._subscription_last_seen: dict[str, datetime] = {}
+        self._metrics_exporter = dependencies.metrics_exporter
 
         rate_config = rate_limits or RateLimitConfig()
         metrics_config = metrics or MetricsConfig()
@@ -108,6 +112,7 @@ class MarketDataService:
         # Size bounded to avoid unbounded growth in extreme loads; 10x window as a guard.
         maxlen = max(100, int((metrics_config.window_seconds or 5.0) * 10))
         self._publish_timestamps: deque[float] = deque(maxlen=maxlen)
+        self._latency_samples: deque[tuple[float, float]] = deque(maxlen=maxlen * 10)
         self._metrics_window_seconds = float(metrics_config.window_seconds or 5.0)
         # Default interval equals window unless explicitly overridden
         self._metrics_report_interval_seconds = (
@@ -119,6 +124,7 @@ class MarketDataService:
         self._last_metrics_published_total: int = 0
         self._last_metrics_dropped_total: int = 0
         self._last_metrics_failed_total: int = 0
+        self._error_totals: defaultdict[tuple[str, str], int] = defaultdict(int)
 
     def _check_rate_limit(self, timestamps: deque[float]) -> bool:
         """Check if an operation is allowed under rate limiting.
@@ -167,6 +173,9 @@ class MarketDataService:
             subscriptions = await self.repository_port.get_active_subscriptions()
             for sub in subscriptions:
                 self._subscriptions[sub.subscription_id] = sub
+                vt_symbol = self._subscription_key_from_parts(sub.symbol, sub.exchange)
+                self._subscription_symbol_by_id[sub.subscription_id] = vt_symbol
+                self._subscription_last_seen.setdefault(vt_symbol, sub.created_at)
             logger.info(f"Loaded {len(subscriptions)} active subscriptions")
 
         # Start metrics reporter loop (non-blocking)
@@ -216,6 +225,11 @@ class MarketDataService:
 
         subscription = await self.market_data_port.subscribe(symbol)
         self._subscriptions[subscription.subscription_id] = subscription
+        vt_symbol = self._subscription_key_from_parts(
+            subscription.symbol, subscription.exchange
+        )
+        self._subscription_symbol_by_id[subscription.subscription_id] = vt_symbol
+        self._subscription_last_seen.setdefault(vt_symbol, subscription.created_at)
 
         if self.repository_port:
             await self.repository_port.save_subscription(subscription)
@@ -243,6 +257,10 @@ class MarketDataService:
 
         if self.market_data_port:
             await self.market_data_port.unsubscribe(subscription_id)
+
+        vt_symbol = self._subscription_symbol_by_id.pop(subscription_id, None)
+        if vt_symbol is not None:
+            self._subscription_last_seen.pop(vt_symbol, None)
 
         del self._subscriptions[subscription_id]
         logger.info(f"Unsubscribed from {subscription_id}")
@@ -272,6 +290,11 @@ class MarketDataService:
 
         """
         logger.debug(f"Processing tick: {tick}")
+
+        latency_ms = self._measure_latency_ms(tick)
+        self._latency_samples.append((time.monotonic(), latency_ms))
+
+        self._mark_subscription_activity(tick)
 
         # Publish to message broker
         if self.publisher_port:
@@ -309,6 +332,7 @@ class MarketDataService:
                 # Failure path: increment failure counter
                 self._failed_publishes_total += 1
                 logger.error(f"Failed to publish tick: {e}", exc_info=True)
+                self._record_error(component="publisher", severity="critical")
 
         # Store tick
         if self.repository_port:
@@ -316,6 +340,7 @@ class MarketDataService:
                 await self.repository_port.save_tick(tick)
             except Exception as e:
                 logger.error(f"Failed to save tick: {e}", exc_info=True)
+                self._record_error(component="repository", severity="error")
 
     async def health_check(self) -> dict[str, bool]:
         """Check the health of all connected services.
@@ -409,6 +434,7 @@ class MarketDataService:
             self._adapter_metrics()
         )
         nats_connected = self._publisher_connected()
+        latency_p99 = self._compute_latency_p99(cutoff)
 
         published_delta = self._published_total - self._last_metrics_published_total
         dropped_delta = dropped_total - self._last_metrics_dropped_total
@@ -434,13 +460,15 @@ class MarketDataService:
             "queue_capacity": queue_capacity,
             "queue_fill_pct": queue_fill_pct,
             "nats_connected": nats_connected,
+            "latency_ms_p99": latency_p99,
         }
         logger.info(
             (
                 "MPS report | window=%ss mps_window=%.3f published_total=%d "
                 "published_delta=%d dropped_total=%d dropped_delta=%d "
                 "failed_total=%d failed_delta=%d active_subscriptions=%d "
-                "queue_size=%s queue_capacity=%s queue_fill_pct=%s nats_connected=%s"
+                "queue_size=%s queue_capacity=%s queue_fill_pct=%s nats_connected=%s "
+                "latency_ms_p99=%.3f"
             ),
             log_extra["window_seconds"],
             log_extra["mps_window"],
@@ -455,8 +483,70 @@ class MarketDataService:
             log_extra["queue_capacity"],
             log_extra["queue_fill_pct"],
             log_extra["nats_connected"],
+            log_extra["latency_ms_p99"],
             extra=log_extra,
         )
+
+        exporter = self._metrics_exporter
+        if exporter is not None:
+            exporter.observe_throughput(mps)
+            exporter.observe_latency_p99(latency_p99)
+            exporter.observe_active_subscriptions(active_subscriptions)
+
+    async def list_active_subscriptions(self) -> list[dict[str, object]]:
+        """Return a snapshot of active subscriptions and their activity."""
+        snapshot: list[dict[str, object]] = []
+        for sub in self._subscriptions.values():
+            vt_symbol = self._subscription_symbol_by_id.get(sub.subscription_id)
+            if vt_symbol is None:
+                vt_symbol = self._subscription_key_from_parts(sub.symbol, sub.exchange)
+            last_seen = self._subscription_last_seen.get(vt_symbol)
+            snapshot.append(
+                {
+                    "subscription_id": sub.subscription_id,
+                    "symbol": vt_symbol,
+                    "base_symbol": sub.symbol,
+                    "exchange": sub.exchange,
+                    "created_at": sub.created_at.astimezone(CHINA_TZ).isoformat(),
+                    "active": sub.active,
+                    "last_tick_at": (
+                        last_seen.astimezone(CHINA_TZ).isoformat()
+                        if last_seen
+                        else None
+                    ),
+                }
+            )
+
+        snapshot.sort(key=lambda item: str(item.get("symbol", "")))
+        return snapshot
+
+    @staticmethod
+    def _subscription_key_from_parts(symbol: str, exchange: str) -> str:
+        exchange_value = exchange or "UNKNOWN"
+        base_symbol = symbol or "UNKNOWN"
+        return f"{base_symbol}.{exchange_value}"
+
+    def _mark_subscription_activity(self, tick: MarketTick) -> None:
+        """Update last-seen activity for the subscription associated with the tick."""
+        vt_symbol = self._resolve_tick_symbol(tick)
+        if not vt_symbol:
+            return
+        try:
+            ts_china = tick.timestamp.astimezone(CHINA_TZ)
+        except (AttributeError, ValueError):  # pragma: no cover - defensive
+            ts_china = datetime.now(CHINA_TZ)
+        self._subscription_last_seen[vt_symbol] = ts_china
+
+    def _resolve_tick_symbol(self, tick: MarketTick) -> str | None:
+        """Resolve a vt_symbol style identifier from a tick payload."""
+        payload = tick.vnpy or {}
+        vt_symbol = str(payload.get("vt_symbol") or tick.symbol or "").strip()
+        if not vt_symbol:
+            return None
+        if "." in vt_symbol:
+            return vt_symbol
+        exchange = str(payload.get("exchange") or "UNKNOWN").strip() or "UNKNOWN"
+        return f"{vt_symbol}.{exchange}"
 
     # Testing helper to fetch current metrics snapshot
     def get_metrics_snapshot(self) -> dict[str, float | int | bool]:
@@ -480,6 +570,10 @@ class MarketDataService:
             "failed_total": self._failed_publishes_total,
             "nats_connected": nats_connected,
         }
+
+    def emit_metrics_snapshot(self) -> None:
+        """Emit a metrics snapshot immediately (testing helper)."""
+        self._emit_metrics_snapshot()
 
     def _adapter_metrics(
         self,
@@ -517,6 +611,42 @@ class MarketDataService:
             return False
         except Exception:  # noqa: BLE001
             return False
+
+    def _measure_latency_ms(self, tick: MarketTick) -> float:
+        """Compute processing latency relative to tick timestamp."""
+        ts = tick.timestamp.astimezone(CHINA_TZ)
+        now_ts = datetime.now(CHINA_TZ)
+        diff_ms = (now_ts - ts).total_seconds() * 1000.0
+        if diff_ms < 0:
+            return 0.0
+        return diff_ms
+
+    def _compute_latency_p99(self, cutoff: float) -> float:
+        """Return 99th percentile latency for samples newer than cutoff."""
+        samples = self._latency_samples
+        while samples and samples[0][0] < cutoff:
+            samples.popleft()
+        if not samples:
+            return 0.0
+        # Extract latencies and sort to compute percentile deterministically.
+        values = sorted(lat for _, lat in samples)
+        if not values:
+            return 0.0
+        rank = max(0, min(len(values) - 1, math.ceil(0.99 * len(values)) - 1))
+        return values[rank]
+
+    def _record_error(self, *, component: str, severity: str, count: int = 1) -> None:
+        """Track error totals and propagate to external exporters."""
+        if count <= 0:
+            return
+
+        key = (component, severity)
+        self._error_totals[key] += count
+        exporter = self._metrics_exporter
+        if exporter is not None:
+            exporter.increment_error(
+                component=component, severity=severity, count=count
+            )
 
 
 class TickIngestService:

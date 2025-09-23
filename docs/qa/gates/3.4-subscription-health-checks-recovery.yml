@@ -1,0 +1,43 @@
+schema: 1
+story: '3.4'
+story_title: 'Subscription Health Checks & Recovery'
+gate: PASS
+status_reason: 'Remediation now issues a single md.subscribe.bulk per attempt and escalates only when retries are exhausted; QA verified logs and tests.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-09-23T10:45:00+08:00'
+
+top_issues: []
+
+waiver:
+  active: false
+
+quality_score: 95
+expires: '2025-10-07T10:45:00+08:00'
+
+evidence:
+  tests_reviewed: 7
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'No new credential exposure; escalation command remains optional.'
+  performance:
+    status: PASS
+    notes: 'Single remediation RPC per attempt keeps md.subscribe.bulk load within expected bounds.'
+  reliability:
+    status: PASS
+    notes: 'Retries update remediation success accurately and escalation markers fire only when required.'
+  maintainability:
+    status: PASS
+    notes: 'Remediation helper remains localized with unit coverage guarding regressions.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Consider a staged integration test that exercises the escalation command against a Slack/PagerDuty sandbox.'
+      refs:
+        - scripts/operations/check_feed_health.py

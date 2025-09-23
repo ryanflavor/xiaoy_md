@@ -21,7 +21,9 @@ This table represents the definitive technology choices for the project. All dev
 | **IaC Tool** | **Docker Compose** | 2.24.x | **Standardized app stack deployment** | Provides service discovery and simplified management. |
 | **Logging** | Logging (Python Module) | 3.13 | Application logging | Python's built-in standard library. |
 | **Serialization** | Pickle / Pydantic+JSON | Configurable | Data transfer format | User-specified; balances flexibility and standards. |
-| **\*\*Monitoring\*\*** | **Prometheus** | 2.51.x | **Metrics collection & storage (Post-MVP)** | Industry-standard open-source monitoring. |
-| **\*\*Visualization\*\*** | **Grafana** | 10.4.x | **Monitoring dashboards (Post-MVP)** | Powerful visualization for Prometheus data. |
+| **Monitoring** | Prometheus | 2.51.x | Metrics collection & storage | Required for production ops; integrates with subscription health agents. |
+| **Visualization & Alerting** | Grafana | 10.4.x | Dashboards & alert routing | Enables runbook-ready dashboards and alerting automation. |
+| **Operational Automation** | Bash / Python CLI | N/A | Runbooks (`start_live_env.sh`, `check_feed_health.py`) | Implements repeatable start/stop/health workflows. |
+| **Secrets & Config Management** | `.env` + Vault-ready pattern | N/A | Credential governance & rate-limit tuning | Documents primary/backup accounts, supports secure storage upgrades. |
 
 ---

@@ -21,30 +21,45 @@ Code snippet
 
 graph TD
     subgraph "External Systems"
-        A\["vnpy CTP Gateway"\]
+        A\["Primary CTP Gateway"\]
+        A2\["Backup Feed / Alternate Source"\]
     end
 
     subgraph "Market Data Service Container (Docker)"
+        I\["Ops Orchestrator\\n(start\_live\_env.sh)"\]
         B\["CTP Adapter (Input Port)"\]
         C\["Core Application Logic (Domain Layer)"\]
+        H\["Subscription Health Agent"\]
         D\["NATS Publisher (Output Port)"\]
+        I \-- Bootstrap --> B
         B \-- TickData Event \--\> C
         C \-- Publish Command \--\> D
+        C \-- Health Snapshot \--\> H
+        H \-- Recovery Hooks \--\> I
     end
 
     subgraph "Infrastructure"
         E\["NATS JetStream Cluster"\]
+        M\["Prometheus Metrics Store"\]
     end
 
-    subgraph "Internal Consumers"
-        F\["Strategy App A"\]
-        G\["Monitoring Dashboard B"\]
+    subgraph "Operations & Insights"
+        F\["Ops Engineer / Runbook"\]
+        G\["Grafana Dashboards & Alerts"\]
     end
 
-    A \-- "Real-time Ticks (TCP)" \--\> B
-    D \-- "Publish Ticks (NATS Protocol)" \--\> E
-    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> F
-    E \-- "Subscribe to Ticks (NATS Protocol)" \--\> G
+    A \-- "Real-time Ticks" \--\> B
+    A2 \-- "Failover Route" \--\> B
+    D \-- "Publish Ticks" \--\> E
+    E \-- "Subscribe to Ticks" \--\> F
+    H \-- "Metrics & Events" \--\> M
+    M \-- "Dashboards & Alerts" \--\> G
+    G \-- "Alert Actions" \--\> F
+    F \-- "Automation Trigger" \--\> I
+
+### **Production Operations Layer (Epic 3 Scope)**
+
+Epic 3 正式引入生产运维平面：自动化 Runbook 负责顺序启动/重启/关闭 NATS、market-data-service 与订阅脚本；订阅健康代理持续对比实时订阅与理论合约全集，并与 Prometheus/Grafana 闭环；主备账户与备用行情源与主链路并列建模，实现平滑故障切换。
 
 ## **Architectural and Design Patterns**
 
@@ -53,5 +68,8 @@ graph TD
 * **Thread Supervisor Pattern**: The CTP adapter runs the vnpy gateway in a separate thread pool and acts as a supervisor. On disconnection/failure it spawns a fresh session thread for each retry (CTP requires a new thread per session), using exponential backoff and capped retries.
 * **Publisher-Subscriber Pattern**: This is the fundamental pattern for communication with downstream consumers via NATS, ensuring a high degree of decoupling.
 * **Configurable Serialization Strategy (Strategy Pattern)**: The service will use a configurable strategy for data serialization (Pickle for flexibility, Pydantic+JSON for standardization), allowing the system to adapt to different consumer needs.
+* **Runbook Automation Pattern**: 运维脚本封装启动/重启/停机编排，保证重复执行的幂等性与可审计性。
+* **Observable Control Loop Pattern**: 监控指标驱动告警，告警又反向触发恢复操作，形成自愈闭环。
+* **Failover Playbook Pattern**: 预置主备账号配置与切换流程，确保故障时快速切换且不影响下游消费者。
 
 ---

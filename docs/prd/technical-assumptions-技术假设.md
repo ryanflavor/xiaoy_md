@@ -35,3 +35,8 @@
   **数据建模** ：Pydantic 将用于所有内部数据模型。
 * **Messaging Infrastructure**: The service will connect to and publish on an existing NATS cluster.
   **消息传递基础设施** ：该服务将连接到现有的 NATS 集群并在其上发布。
+
+### **Secrets Governance — 主备凭证治理**
+
+* **Primary/Backup Credentials**: Live CTP credentials are split into `CTP_PRIMARY_*` and `CTP_BACKUP_*` profiles. Operators provision real values through Vault or encrypted `.env.*` overlays and keep `.env.example` redacted in git.（生产 CTP 凭证拆分为 `CTP_PRIMARY_*` 与 `CTP_BACKUP_*` 两套，实际值通过 Vault 或加密 `.env.*` 覆盖文件注入，`.env.example` 在仓库内保持空白。）
+* **Secure Loading Workflow**: The runbook pulls secrets from Vault into a temporary runtime file, then `AppSettings` validates the profiles before startup. Reference `docs/architecture/security.md#15-security` for the full sequence and Story 3.2 Environment Variables & Secrets Governance for traceability.（运行手册将 Vault 中的密钥写入临时运行时文件，随后 `AppSettings` 在启动前执行验证；详细流程见 `docs/architecture/security.md#15-security`，并与 Story 3.2《环境变量与秘密管理治理》保持一致性。）
