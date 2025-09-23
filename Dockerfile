@@ -23,6 +23,26 @@ COPY src/ ./src/
 ENV UV_LINK_MODE=copy
 RUN uv sync --frozen --no-dev --extra ctp
 
+# Remove GUI-heavy optional dependencies from the portable virtualenv
+RUN rm -rf \
+        /app/.venv/lib/python3.13/site-packages/PySide6 \
+        /app/.venv/lib/python3.13/site-packages/PySide6-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/shiboken6 \
+        /app/.venv/lib/python3.13/site-packages/shiboken6-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/plotly \
+        /app/.venv/lib/python3.13/site-packages/plotly-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/pyqtgraph \
+        /app/.venv/lib/python3.13/site-packages/pyqtgraph-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/qdarkstyle \
+        /app/.venv/lib/python3.13/site-packages/qdarkstyle-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/talib \
+        /app/.venv/lib/python3.13/site-packages/TA_Lib-*.dist-info \
+        /app/.venv/lib/python3.13/site-packages/Cython \
+        /app/.venv/lib/python3.13/site-packages/Cython-*.dist-info || true
+
+# Strip native extension binaries to shrink runtime footprint
+RUN find /app/.venv -type f \( -name '*.so' -o -name '*.a' \) -exec strip --strip-unneeded {} + || true
+
 # Runtime image
 FROM python:3.13-slim AS runtime
 
@@ -40,8 +60,7 @@ ENV no_proxy=${NO_PROXY}
 # Install locale and minimal build utilities needed at runtime (e.g., gb18030)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        locales \
-        build-essential && \
+        locales && \
     (grep -q '^zh_CN.GB18030' /etc/locale.gen || echo 'zh_CN.GB18030 GB18030' >> /etc/locale.gen) && \
     locale-gen zh_CN.GB18030 && \
     rm -rf /var/lib/apt/lists/*
@@ -53,11 +72,7 @@ RUN groupadd -g 1000 appuser && \
 WORKDIR /app
 
 # Copy pre-synced virtual environment from builder stage
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /root/.cache/uv /root/.cache/uv
-RUN chown -R appuser:appuser /app/.venv && \
-    chmod 755 /root && \
-    chmod -R a+rX /root/.cache/uv
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy sources for runtime execution

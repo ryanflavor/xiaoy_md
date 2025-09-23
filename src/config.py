@@ -204,6 +204,8 @@ class AppSettings(BaseSettings):
         "nats_cluster_id",
         "nats_client_id",
         "nats_password",  # pragma: allowlist secret
+        "ctp_password",  # pragma: allowlist secret
+        "ctp_auth_code",  # pragma: allowlist secret
     )
     _PRIMARY_ENV_MAP: ClassVar[dict[str, str]] = {
         "broker_id": "CTP_PRIMARY_BROKER_ID",
@@ -758,6 +760,14 @@ class AppSettings(BaseSettings):
             "auth_code": _mask_secret(_as_secret(self.ctp_backup.auth_code)),
         }
 
+        resolved_password = _as_secret(self._resolve_profile_field("password"))
+        if not resolved_password:
+            resolved_password = _as_secret(getattr(self, "legacy_ctp_password", None))
+
+        resolved_auth_code = _as_secret(self._resolve_profile_field("auth_code"))
+        if not resolved_auth_code:
+            resolved_auth_code = _as_secret(getattr(self, "legacy_ctp_auth_code", None))
+
         data["ctp_primary"] = primary_safe
         data["ctp_backup"] = backup_safe
 
@@ -766,12 +776,8 @@ class AppSettings(BaseSettings):
         for key, value in backup_safe.items():
             data[f"ctp_backup_{key}"] = value
 
-        data["ctp_password"] = _mask_secret(
-            _as_secret(self._resolve_profile_field("password"))
-        )
-        data["ctp_auth_code"] = _mask_secret(
-            _as_secret(self._resolve_profile_field("auth_code"))
-        )
+        data["ctp_password"] = _mask_secret(resolved_password)
+        data["ctp_auth_code"] = _mask_secret(resolved_auth_code)
 
         return data
 

@@ -26,6 +26,7 @@ from src.infrastructure.ctp_adapter import (
     MAX_FLOAT,
     CTPGatewayAdapter,
     RetryPolicy,
+    _resolve_vt_symbol,
     normalize_address,
 )
 
@@ -33,17 +34,19 @@ from src.infrastructure.ctp_adapter import (
 @pytest.fixture
 def ctp_settings() -> AppSettings:
     """Create test settings including CTP credentials and endpoints."""
-    return AppSettings(
-        app_name="test-service",
-        nats_client_id="test-client",
-        ctp_broker_id="9999",
-        ctp_user_id="u001",
-        ctp_password=SecretStr("secret-pass"),  # pragma: allowlist secret
-        ctp_md_address="127.0.0.1:5001",
-        ctp_td_address="tcp://127.0.0.1:5002",
-        ctp_app_id="appx",
-        ctp_auth_code=SecretStr("authy"),
-    )
+    data = {
+        "app_name": "test-service",
+        "nats_client_id": "test-client",
+        "ctp_broker_id": "9999",
+        "ctp_user_id": "u001",
+        "ctp_password": SecretStr("secret-pass"),  # pragma: allowlist secret
+        "ctp_md_address": "127.0.0.1:5001",
+        "ctp_td_address": "tcp://127.0.0.1:5002",
+        "ctp_app_id": "appx",
+        "ctp_auth_code": SecretStr("authy"),
+        "ctp_route_selector": "primary",
+    }
+    return AppSettings.model_validate(data, context={"_env_file": None})
 
 
 class FakeExecutor:
@@ -235,6 +238,15 @@ class TestAC4ConfigMappingAndNormalization:
         assert normalize_address("127.0.0.1:5001") == "tcp://127.0.0.1:5001"
         assert normalize_address("tcp://127.0.0.1:5002") == "tcp://127.0.0.1:5002"
         assert normalize_address("ssl://example:443") == "ssl://example:443"
+
+    def test_resolve_vt_symbol_infers_exchange_from_base(self):
+        class _Tick:
+            vt_symbol = None
+            exchange = None
+
+        vt, ex = _resolve_vt_symbol(_Tick(), "IF2312.CFFEX")
+        assert vt == "IF2312.CFFEX"
+        assert ex == "CFFEX"
 
     def test_to_dict_safe_masks_secrets(self, ctp_settings: AppSettings):
         data = ctp_settings.to_dict_safe()

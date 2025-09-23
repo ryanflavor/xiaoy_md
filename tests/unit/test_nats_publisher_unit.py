@@ -68,3 +68,53 @@ def test_nats_publisher_connection_options_unwraps_secret_password(
 
     assert options["user"] == "user"
     assert options["password"] == "topsecret"  # pragma: allowlist secret
+
+
+def test_connection_options_canonicalize_localhost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in ("NATS_USER", "NATS_PASSWORD", "NATS_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "nats_url": "nats://localhost:4226",
+            "nats_user": None,
+            "nats_password": None,
+            "nats_client_id": "client",
+            "environment": "test",
+            "app_name": "test-app",
+            "nats_health_check_subject": "health.check",
+        },
+    )()
+
+    pub = NATSPublisher(settings)
+    options = pub.create_connection_options()
+    assert options["servers"][0] == "nats://127.0.0.1:4226"
+
+
+def test_connection_options_preserve_custom_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in ("NATS_USER", "NATS_PASSWORD", "NATS_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "nats_url": "nats://broker.internal:4222",
+            "nats_user": None,
+            "nats_password": None,
+            "nats_client_id": "client",
+            "environment": "production",
+            "app_name": "test-app",
+            "nats_health_check_subject": "health.check",
+        },
+    )()
+
+    pub = NATSPublisher(settings)
+    options = pub.create_connection_options()
+    assert options["servers"][0] == "nats://broker.internal:4222"

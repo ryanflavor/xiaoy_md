@@ -180,8 +180,12 @@ async def test_end_to_end_market_tick_flow(nats_container):
 
     # Compose in-process service graph with ephemeral NATS
     nats_url = f"nats://localhost:{nats_container['client_port']}"
-    settings = AppSettings(
-        nats_url=nats_url, nats_client_id="e2e-md-tester", environment="test"
+    settings = AppSettings.model_validate(
+        {
+            "nats_url": nats_url,
+            "nats_client_id": "e2e-md-tester",
+            "environment": "test",
+        }
     )
 
     publisher = NATSPublisher(settings)

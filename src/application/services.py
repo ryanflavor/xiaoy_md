@@ -12,6 +12,7 @@ from datetime import datetime
 import logging
 import math
 import time
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.application.observability import PrometheusMetricsExporter
@@ -299,37 +300,11 @@ class MarketDataService:
         # Publish to message broker
         if self.publisher_port:
             try:
-                payload = dict(tick.vnpy) if tick.vnpy else {}
-                vt_symbol = payload.get("vt_symbol") or tick.symbol
-                base_symbol = payload.get("symbol") or vt_symbol.split(".", 1)[0]
-                exchange = payload.get("exchange") or (
-                    vt_symbol.split(".", 1)[1] if "." in vt_symbol else "UNKNOWN"
-                )
-
-                # Ensure canonical fields are present
-                payload.setdefault("vt_symbol", vt_symbol)
-                payload.setdefault("symbol", base_symbol)
-                payload.setdefault("exchange", exchange)
-                ts_china = tick.timestamp.astimezone(CHINA_TZ)
-                payload.setdefault("datetime", ts_china.isoformat())
-                payload.setdefault("timestamp", ts_china.isoformat())
-                payload.setdefault("last_price", float(tick.price))
-                if tick.volume is not None:
-                    payload.setdefault("volume", float(tick.volume))
-                if tick.bid is not None:
-                    payload.setdefault("bid_price_1", float(tick.bid))
-                if tick.ask is not None:
-                    payload.setdefault("ask_price_1", float(tick.ask))
-                payload.setdefault("source", payload.get("source", "ctp"))
-
-                topic = f"market.tick.{exchange}.{base_symbol}"
-
+                topic, payload = self._build_publish_payload(tick)
                 await self.publisher_port.publish(topic, payload)
-                # Success path: record counters/timestamps for MPS
                 self._published_total += 1
                 self._publish_timestamps.append(time.monotonic())
             except Exception as e:
-                # Failure path: increment failure counter
                 self._failed_publishes_total += 1
                 logger.error(f"Failed to publish tick: {e}", exc_info=True)
                 self._record_error(component="publisher", severity="critical")
@@ -341,6 +316,83 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Failed to save tick: {e}", exc_info=True)
                 self._record_error(component="repository", severity="error")
+
+    def _build_publish_payload(self, tick: MarketTick) -> tuple[str, dict[str, Any]]:
+        payload = dict(tick.vnpy) if tick.vnpy else {}
+        vt_symbol = payload.get("vt_symbol") or tick.symbol
+
+        symbol_field = payload.get("symbol")
+        base_symbol = self._derive_base_symbol(
+            payload.get("base_symbol") or symbol_field, vt_symbol
+        )
+        exchange = self._derive_exchange(payload, symbol_field, vt_symbol)
+
+        derived = {
+            "base_symbol": base_symbol,
+            "symbol_field": symbol_field,
+            "exchange": exchange,
+            "vt_symbol": vt_symbol,
+        }
+
+        self._enrich_payload(payload, tick, derived)
+        topic = f"market.tick.{exchange}.{base_symbol}"
+        return topic, payload
+
+    @staticmethod
+    def _derive_base_symbol(base_symbol: Any, vt_symbol: str) -> str:
+        if isinstance(base_symbol, str) and base_symbol:
+            if "." in base_symbol:
+                return base_symbol.split(".", 1)[0]
+            return base_symbol
+
+        vt_token = str(vt_symbol)
+        return vt_token.split(".", 1)[0] if "." in vt_token else vt_token
+
+    @staticmethod
+    def _derive_exchange(
+        payload: dict[str, Any], symbol_field: Any, vt_symbol: str
+    ) -> str:
+        exchange = payload.get("exchange")
+        if exchange:
+            return str(exchange)
+
+        if isinstance(symbol_field, str) and "." in symbol_field:
+            return symbol_field.split(".", 1)[1]
+        if isinstance(vt_symbol, str) and "." in vt_symbol:
+            return vt_symbol.split(".", 1)[1]
+        return "UNKNOWN"
+
+    @staticmethod
+    def _enrich_payload(
+        payload: dict[str, Any], tick: MarketTick, derived: dict[str, Any]
+    ) -> None:
+        base_symbol = str(derived["base_symbol"])
+        symbol_field = derived.get("symbol_field")
+        exchange = str(derived["exchange"])
+        vt_symbol = str(derived["vt_symbol"])
+
+        payload.setdefault("vt_symbol", vt_symbol)
+        payload.setdefault("base_symbol", base_symbol)
+        if isinstance(symbol_field, str) and symbol_field:
+            payload.setdefault("symbol", symbol_field)
+        else:
+            payload.setdefault("symbol", base_symbol)
+
+        payload.setdefault("exchange", exchange)
+        ts_china = tick.timestamp.astimezone(CHINA_TZ)
+        payload.setdefault("datetime", ts_china.isoformat())
+        payload.setdefault("timestamp", ts_china.isoformat())
+        payload.setdefault("last_price", float(tick.price))
+        payload["price"] = str(tick.price)
+        if tick.volume is not None:
+            payload["volume"] = str(tick.volume)
+        if tick.bid is not None:
+            payload.setdefault("bid_price_1", float(tick.bid))
+            payload["bid"] = str(tick.bid)
+        if tick.ask is not None:
+            payload.setdefault("ask_price_1", float(tick.ask))
+            payload["ask"] = str(tick.ask)
+        payload.setdefault("source", payload.get("source", "ctp"))
 
     async def health_check(self) -> dict[str, bool]:
         """Check the health of all connected services.

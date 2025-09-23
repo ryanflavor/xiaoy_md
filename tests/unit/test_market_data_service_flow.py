@@ -91,6 +91,59 @@ class _MD(MarketDataPort):
 
 
 @pytest.mark.asyncio
+async def test_process_tick_payload_includes_string_fields() -> None:
+    tz = ZoneInfo("Asia/Shanghai")
+    tick = MarketTick(
+        symbol="IF2312.CFFEX",
+        price=Decimal("1234.5"),
+        volume=Decimal("10"),
+        timestamp=datetime(2025, 1, 1, 9, 30, 0, tzinfo=tz),
+        bid=Decimal("1234.4"),
+        ask=Decimal("1234.6"),
+        vnpy={"symbol": "IF2312.CFFEX", "exchange": "CFFEX"},
+    )
+
+    pub = _Pub()
+    svc = MarketDataService(
+        ports=ServiceDependencies(
+            market_data=_MD(),
+            publisher=pub,
+        )
+    )
+
+    await svc._process_tick(tick)  # noqa: SLF001
+
+    assert pub.published, "Tick should be published"
+    subject, payload = pub.published[0]
+    assert subject == "market.tick.CFFEX.IF2312"
+    assert payload["price"] == "1234.5"
+    assert payload["bid"] == "1234.4"
+    assert payload["ask"] == "1234.6"
+    assert payload["volume"] == "10"
+
+
+def test_build_publish_payload_falls_back_to_defaults() -> None:
+    svc = MarketDataService(
+        ports=ServiceDependencies(
+            market_data=_MD(),
+            publisher=_Pub(),
+        )
+    )
+
+    tick = MarketTick(
+        symbol="rb2401",
+        price=Decimal("1"),
+        timestamp=datetime.now(ZoneInfo("Asia/Shanghai")),
+        vnpy={},
+    )
+
+    topic, payload = svc._build_publish_payload(tick)  # noqa: SLF001
+    assert topic == "market.tick.UNKNOWN.rb2401"
+    assert payload["symbol"] == "rb2401"
+    assert payload["exchange"] == "UNKNOWN"
+
+
+@pytest.mark.asyncio
 async def test_market_data_service_sub_unsub_and_process_flow() -> None:
     md = _MD()
     pub = _Pub()

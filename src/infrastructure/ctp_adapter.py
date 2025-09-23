@@ -75,7 +75,15 @@ def _resolve_vt_symbol(vnpy_tick: Any, base_symbol: str) -> tuple[str, str | Non
         return vt_attr, exchange
 
     ex_attr = getattr(vnpy_tick, "exchange", None)
-    return _symbol_from_exchange(base_symbol, ex_attr)
+    vt_symbol, exchange = _symbol_from_exchange(base_symbol, ex_attr)
+
+    if exchange is None and "." in base_symbol:
+        base, ex = base_symbol.rsplit(".", 1)
+        if base and ex:
+            exchange = ex
+            vt_symbol = vt_symbol or f"{base}.{ex}"
+
+    return vt_symbol, exchange
 
 
 def _symbol_from_exchange(base_symbol: str, ex_attr: Any) -> tuple[str, str | None]:
@@ -133,7 +141,9 @@ def _build_raw_payload(
         if not key.startswith("_"):
             payload[key] = _normalize_attribute(value)
 
-    payload["symbol"] = base_symbol
+    if base_symbol:
+        payload.setdefault("symbol", base_symbol)
+        payload["base_symbol"] = base_symbol
     payload["vt_symbol"] = vt_symbol
     exchange_str = normalized_exchange or payload.get("exchange") or "UNKNOWN"
     payload["exchange"] = exchange_str
@@ -497,8 +507,19 @@ class CTPGatewayAdapter(MarketDataPort):
             tick_datetime = tick_datetime.astimezone(CHINA_TZ)
 
         china_datetime = tick_datetime
-        base_symbol = getattr(vnpy_tick, "symbol", None) or ""
-        vt_symbol, normalized_exchange = _resolve_vt_symbol(vnpy_tick, base_symbol)
+        base_symbol_attr = getattr(vnpy_tick, "symbol", None) or ""
+        vt_symbol, normalized_exchange = _resolve_vt_symbol(vnpy_tick, base_symbol_attr)
+
+        base_symbol = base_symbol_attr
+        if "." in base_symbol_attr:
+            base, ex = base_symbol_attr.rsplit(".", 1)
+            if base and ex:
+                base_symbol = base
+                if normalized_exchange is None:
+                    normalized_exchange = ex
+                if not vt_symbol:
+                    vt_symbol = f"{base}.{ex}"
+
         raw_payload = _build_raw_payload(
             vnpy_tick, base_symbol, vt_symbol, normalized_exchange, china_datetime
         )

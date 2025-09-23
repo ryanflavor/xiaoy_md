@@ -15,6 +15,7 @@ import logging
 import secrets
 import time
 from typing import Any, TypeVar
+from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 from nats.aio.client import Client as NATS
@@ -198,8 +199,10 @@ class NATSPublisher(MessagePublisherPort):
             Dictionary of connection options
 
         """
+        servers = [_canonicalize_server_url(self.settings.nats_url)]
+
         options = {
-            "servers": [self.settings.nats_url],
+            "servers": servers,
             "name": self.settings.nats_client_id,
             "reconnect_time_wait": 2,
             "max_reconnect_attempts": 10,
@@ -548,3 +551,33 @@ class NATSPublisher(MessagePublisherPort):
     def health_check_subscription(self, value: Any) -> None:
         """Public setter for health check subscription (testing only)."""
         self._health_check_subscription = value
+
+
+def _canonicalize_server_url(url: str) -> str:
+    """Normalize server URL to avoid DNS-dependent hostnames."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url
+
+    host = parsed.hostname
+    if not host:
+        return url
+
+    replacement = None
+    if host.lower() == "localhost":
+        replacement = "127.0.0.1"
+
+    if not replacement:
+        return url
+
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{userinfo}{replacement}{port}"
+    return urlunparse(parsed._replace(netloc=netloc))

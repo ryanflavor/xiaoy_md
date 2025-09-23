@@ -13,6 +13,7 @@ import nats
 import pytest
 
 # Reuse container/app fixtures from the health-check integration module
+pytest_plugins = ("tests.integration.test_nats_health_check",)
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(120)]
 
