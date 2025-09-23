@@ -199,7 +199,13 @@ class NATSPublisher(MessagePublisherPort):
             Dictionary of connection options
 
         """
-        servers = [_canonicalize_server_url(self.settings.nats_url)]
+        env = self.settings.environment.lower()
+        server_url = (
+            self.settings.nats_url
+            if env == "development"
+            else _canonicalize_server_url(self.settings.nats_url)
+        )
+        servers = [server_url]
 
         options = {
             "servers": servers,
@@ -214,7 +220,6 @@ class NATSPublisher(MessagePublisherPort):
 
         # In development, use faster connection timeouts to avoid blocking local runs.
         # Keep default (more robust) timeouts for test/production to improve stability.
-        env = self.settings.environment.lower()
         if env == "development":
             options["connect_timeout"] = 0.5
             options["reconnect_time_wait"] = 0.1
@@ -564,11 +569,13 @@ def _canonicalize_server_url(url: str) -> str:
     if not host:
         return url
 
+    host_lower = host.lower()
+    # Normalize localhost to an explicit loopback address when canonicalization is enabled.
     replacement = None
-    if host.lower() == "localhost":
+    if host_lower == "localhost":
         replacement = "127.0.0.1"
 
-    if not replacement:
+    if replacement is None:
         return url
 
     userinfo = ""

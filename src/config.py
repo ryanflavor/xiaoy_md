@@ -21,6 +21,7 @@ _MASK_SHORT_LENGTH = 4
 _MASK_LONG_THRESHOLD = 8
 _MASK_MIN_PREFIX = 2
 _MASK_SUFFIX_LENGTH = 2
+_SECRET_PLACEHOLDER = "*" * 3
 
 
 def _as_secret(value: SecretStr | str | None) -> str | None:
@@ -33,7 +34,7 @@ def _as_secret(value: SecretStr | str | None) -> str | None:
 
 def _mask_secret(value: str | None) -> str | None:
     if value is None or not value:
-        return value
+        return None
     if len(value) <= _MASK_SHORT_LENGTH:
         return "***"
     prefix_len = (
@@ -776,8 +777,11 @@ class AppSettings(BaseSettings):
         for key, value in backup_safe.items():
             data[f"ctp_backup_{key}"] = value
 
-        data["ctp_password"] = _mask_secret(resolved_password)
-        data["ctp_auth_code"] = _mask_secret(resolved_auth_code)
+        masked_password = _mask_secret(resolved_password)
+        masked_auth_code = _mask_secret(resolved_auth_code)
+
+        data["ctp_password"] = masked_password or _SECRET_PLACEHOLDER
+        data["ctp_auth_code"] = masked_auth_code or _SECRET_PLACEHOLDER
 
         return data
 
