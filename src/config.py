@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import typing
 from typing import Any, ClassVar
 
@@ -403,6 +404,34 @@ class AppSettings(BaseSettings):
         description="Prometheus Pushgateway endpoint",
         validation_alias=AliasChoices("PUSHGATEWAY_URL"),
     )
+    ops_api_tokens: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Bearer tokens authorized to call the operations API",
+        validation_alias=AliasChoices("OPS_API_TOKENS", "OPS_API_TOKEN"),
+    )
+    ops_runbook_script: Path = Field(
+        default=Path("scripts/operations/start_live_env.sh"),
+        description="Path to the runbook orchestration script",
+    )
+    ops_health_output_dir: Path = Field(
+        default=Path("logs/runbooks"),
+        description="Directory for health-check artifacts and logs",
+    )
+    ops_status_file: Path = Field(
+        default=Path("logs/runbooks/ops_console_status.json"),
+        description="Status cache file for operations console API",
+    )
+    ops_prometheus_base_url: str | None = Field(
+        default=None,
+        description="Base URL for Prometheus HTTP API consumption",
+        validation_alias=AliasChoices("OPS_PROMETHEUS_URL", "PROMETHEUS_BASE_URL"),
+    )
+    ops_prometheus_timeout_seconds: float = Field(
+        default=3.0,
+        description="Timeout (seconds) for Prometheus queries",
+        ge=0.5,
+        le=30.0,
+    )
 
     # Legacy single-profile aliases for compatibility (non-default route)
     legacy_ctp_broker_id: str | None = Field(
@@ -475,6 +504,8 @@ class AppSettings(BaseSettings):
                 if not _has_value(getattr(self.ctp_backup, attr))
             ]
             raise IncompleteBackupProfileError(missing)
+        self._normalize_ops_tokens()
+        self._normalize_ops_paths()
         return self
 
     @staticmethod
@@ -484,6 +515,29 @@ class AppSettings(BaseSettings):
         if normalized not in allowed:
             raise RouteSelectorError(allowed, value)
         return normalized
+
+    def _normalize_ops_tokens(self) -> None:
+        raw_values = list(self.ops_api_tokens)
+        if (
+            raw_values
+            and len(raw_values) > 1
+            and all(len(str(item)) == 1 for item in raw_values)
+        ):
+            raw_values = ["".join(str(item) for item in raw_values)]
+        tokens: list[str] = []
+        for value in raw_values:
+            for part in str(value).replace("\n", ",").split(","):
+                token = part.strip()
+                if token and token not in tokens:
+                    tokens.append(token)
+        self.ops_api_tokens = tuple(tokens)
+
+    def _normalize_ops_paths(self) -> None:
+        self.ops_runbook_script = Path(self.ops_runbook_script).expanduser().resolve()
+        self.ops_health_output_dir = (
+            Path(self.ops_health_output_dir).expanduser().resolve()
+        )
+        self.ops_status_file = Path(self.ops_status_file).expanduser().resolve()
 
     def missing_primary_fields(self) -> list[str]:
         """Return missing primary credential fields for live orchestration."""

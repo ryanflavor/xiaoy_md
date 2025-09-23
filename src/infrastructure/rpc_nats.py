@@ -21,6 +21,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from nats.aio.client import Client as NATSClient
+from pydantic import SecretStr
+
+
+def _resolve_secret(value: str | SecretStr | None) -> str | None:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
+
 
 logger = logging.getLogger(__name__)
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
@@ -64,7 +72,7 @@ class NATSRPCServer:
             "name": f"{self._settings.nats_client_id}-rpc",
         }
         user = getattr(self._settings, "nats_user", None)
-        pwd = getattr(self._settings, "nats_password", None)
+        pwd = _resolve_secret(getattr(self._settings, "nats_password", None))
         if user and pwd:
             options["user"] = user
             options["password"] = pwd
@@ -88,7 +96,7 @@ class NATSRPCServer:
         self._subscriptions.append(_RpcSubscription(self.SUBSCRIBE_BULK_SUBJECT, sub2))
 
         async def _active_handler(msg: Any) -> None:
-            payload = await self._handle_active_subscriptions()
+            payload = await self._handle_active_subscriptions(msg.data)
             await msg.respond(json.dumps(payload).encode())
 
         sub3 = await self._nc.subscribe(
@@ -229,9 +237,13 @@ class NATSRPCServer:
         ts = datetime.now(CHINA_TZ).isoformat()
         return {"accepted": accepted, "rejected": rejected, "ts": ts}
 
-    async def _handle_active_subscriptions(self) -> dict[str, Any]:
+    async def _handle_active_subscriptions(
+        self, raw: bytes | None = None
+    ) -> dict[str, Any]:
         """Handle md.subscriptions.active requests."""
         ts = datetime.now(CHINA_TZ).isoformat()
+
+        limit = _parse_subscription_limit(raw)
 
         if not hasattr(self._service, "list_active_subscriptions"):
             logger.warning("active_subscriptions_not_supported")
@@ -258,12 +270,53 @@ class NATSRPCServer:
                 "error": str(exc),
             }
 
-        return {
-            "subscriptions": data,
+        symbols = [_normalize_subscription_symbol(entry) for entry in data]
+        symbols = [symbol for symbol in symbols if symbol]
+
+        truncated = False
+        if limit is not None and len(symbols) > limit:
+            truncated = True
+            symbols = symbols[:limit]
+
+        payload: dict[str, Any] = {
+            "subscriptions": symbols,
             "total": len(data),
             "ts": ts,
             "source": "market-data-service",
         }
+        if truncated:
+            payload["truncated"] = True
+        return payload
+
+
+def _parse_subscription_limit(raw: bytes | None) -> int | None:
+    if not raw:
+        return None
+    try:
+        req = json.loads(raw.decode() or "{}")
+    except Exception:  # noqa: BLE001
+        return None
+    value = req.get("limit")
+    try:
+        candidate = int(value)
+    except (TypeError, ValueError):
+        return None
+    return candidate if candidate > 0 else None
+
+
+def _normalize_subscription_symbol(entry: Any) -> str | None:
+    if isinstance(entry, dict):
+        raw_symbol = entry.get("symbol") or entry.get("vt_symbol")
+        if isinstance(raw_symbol, str):
+            return raw_symbol.strip() or None
+        if raw_symbol is not None:
+            return str(raw_symbol).strip() or None
+        return None
+    if isinstance(entry, str):
+        return entry.strip() or None
+    if entry is not None:
+        return str(entry).strip() or None
+    return None
 
 
 async def _maybe_await(value: Any) -> Any:

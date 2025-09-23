@@ -1,0 +1,41 @@
+schema: 1
+story: '3.6'
+story_title: 'Operations Monitoring Console UI'
+gate: PASS
+status_reason: 'Playwright now covers the failover confirmation flow and preview bootstrap surfaces failures promptly.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-09-23T09:07:34+00:00'
+
+top_issues: []
+waiver:
+  active: false
+
+evidence:
+  tests_reviewed: 2
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 4]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Stubs and token resolution continue to avoid leaking credentials.'
+  performance:
+    status: PASS
+    notes: 'Preview bootstrap rebuild acceptable; failures propagate immediately.'
+  reliability:
+    status: PASS
+    notes: 'Automated failover flow protects high-safety operations from regression.'
+  maintainability:
+    status: PASS
+    notes: 'Tests remain concise and hooks/components unaffected.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Consider a focused component test for ActionPanel error states to exercise edge handling without Playwright overhead.'
+      refs:
+        - 'ui/operations-console/src/components/ActionPanel.tsx:24'
+quality_score: 100
+expires: '2025-10-07T09:07:34+00:00'
