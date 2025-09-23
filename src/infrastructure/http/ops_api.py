@@ -76,13 +76,10 @@ def create_app(
     def get_tokens() -> set[str]:  # pragma: no cover - trivial accessor
         return token_set
 
-    token_dep = Annotated[set[str], Depends(get_tokens)]
-    service_dep = Annotated[OperationsConsoleService, Depends(get_service)]
-
     async def require_token(
-        allowed_tokens: token_dep,
         authorization: Annotated[str | None, Header()] = None,
     ) -> str:
+        allowed_tokens = token_set
         if not allowed_tokens:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -113,8 +110,8 @@ def create_app(
     )
     async def execute_runbook(
         payload: RunbookRequest,
-        _token: Annotated[str, Depends(require_token)],
-        svc: service_dep,
+        _token: str = Depends(require_token),
+        svc: OperationsConsoleService = Depends(get_service),  # noqa: B008
     ) -> RunbookExecuteResponse:
         envelope = await svc.execute(payload)
         return RunbookExecuteResponse(**envelope.model_dump())
@@ -125,8 +122,8 @@ def create_app(
         tags=["status"],
     )
     async def get_status(
-        _token: Annotated[str, Depends(require_token)],
-        svc: service_dep,
+        _token: str = Depends(require_token),
+        svc: OperationsConsoleService = Depends(get_service),  # noqa: B008
     ) -> StatusResponseModel:
         state = await svc.get_status()
         recent = state.runbook_history[-10:]
@@ -139,7 +136,7 @@ def create_app(
         tags=["metrics"],
     )
     async def get_metrics_summary(
-        _: str = Depends(require_token),
+        _token: str = Depends(require_token),
         svc: OperationsConsoleService = Depends(get_service),  # noqa: B008
     ) -> MetricsSummary:
         return await svc.get_metrics_summary()
@@ -154,8 +151,8 @@ def create_app(
         *,
         minutes: int = 60,
         step_seconds: int = 60,
-        _token: Annotated[str, Depends(require_token)],
-        svc: service_dep,
+        _token: str = Depends(require_token),
+        svc: OperationsConsoleService = Depends(get_service),  # noqa: B008
     ) -> TimeseriesSeries:
         return await svc.get_timeseries(
             metric, minutes=minutes, step_seconds=step_seconds

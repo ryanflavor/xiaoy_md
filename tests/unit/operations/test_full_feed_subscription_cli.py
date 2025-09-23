@@ -122,7 +122,8 @@ async def test_request_json_retries_when_no_responders():
     attempts: list[int] = []
 
     class DummyNC:
-        async def request(self, _subject, _payload, _timeout):
+        async def request(self, subject, payload, timeout):
+            _ = (subject, payload, timeout)
             attempts.append(1)
             if len(attempts) == 1:
                 raise nats_errors.NoRespondersError
@@ -147,7 +148,8 @@ async def test_request_json_raises_after_retry_exhausted():
     attempt_count = 0
 
     class DummyNC:
-        async def request(self, _subject, _payload, _timeout):
+        async def request(self, subject, payload, timeout):
+            _ = (subject, payload, timeout)
             nonlocal attempt_count
             attempt_count += 1
             raise nats_errors.NoRespondersError
@@ -172,7 +174,8 @@ async def test_request_json_retries_on_timeout():
     attempts = 0
 
     class DummyNC:
-        async def request(self, _subject, _payload, _timeout):
+        async def request(self, subject, payload, timeout):
+            _ = (subject, payload, timeout)
             nonlocal attempts
             attempts += 1
             if attempts == 1:
@@ -198,7 +201,8 @@ async def test_request_json_timeout_after_retry_exhausted():
     attempts = 0
 
     class DummyNC:
-        async def request(self, _subject, _payload, _timeout):
+        async def request(self, subject, payload, timeout):
+            _ = (subject, payload, timeout)
             nonlocal attempts
             attempts += 1
             raise nats_errors.TimeoutError

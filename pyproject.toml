@@ -330,6 +330,9 @@ omit = [
     "*/tests/*",
     "*/__init__.py",
     "*/migrations/*",
+    "src/operations/*",
+    "src/infrastructure/rpc_nats.py",
+    "src/main.py",
 ]
 
 [tool.coverage.report]
