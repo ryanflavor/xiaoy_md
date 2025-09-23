@@ -1,5 +1,7 @@
 """Unit tests for configuration security features."""
 
+import pytest
+
 from src.config import AppSettings
 
 
@@ -80,3 +82,22 @@ class TestConfigurationSecurity:
         assert full_dict["nats_url"] == "nats://secret-host:4222"
         assert full_dict["nats_cluster_id"] == "cluster-123"
         assert full_dict["nats_client_id"] == "client-456"
+
+    def test_to_dict_safe_uses_placeholders_for_unset_credentials(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unset secrets should serialize using placeholder masking."""
+        for key in (
+            "CTP_PASSWORD",
+            "CTP_AUTH_CODE",
+            "CTP_PRIMARY_PASSWORD",
+            "CTP_PRIMARY_AUTH_CODE",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+        monkeypatch.setattr(AppSettings, "_resolve_profile_field", lambda *_: None)
+        settings = AppSettings.model_validate({}, context={"_env_file": None})
+        safe_dict = settings.to_dict_safe()
+
+        assert safe_dict["ctp_password"] == "***"
+        assert safe_dict["ctp_auth_code"] == "***"

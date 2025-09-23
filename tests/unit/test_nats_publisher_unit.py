@@ -6,7 +6,7 @@ from pydantic import SecretStr
 import pytest
 
 from src.config import AppSettings
-from src.infrastructure.nats_publisher import NATSPublisher
+from src.infrastructure.nats_publisher import NATSPublisher, _canonicalize_server_url
 
 
 class _FakeNATS:
@@ -118,3 +118,9 @@ def test_connection_options_preserve_custom_host(
     pub = NATSPublisher(settings)
     options = pub.create_connection_options()
     assert options["servers"][0] == "nats://broker.internal:4222"
+
+
+def test_canonicalize_preserves_userinfo_and_port() -> None:
+    url = "nats://user:pass@localhost:4229"  # pragma: allowlist secret
+    expected = "nats://user:pass@127.0.0.1:4229"  # pragma: allowlist secret
+    assert _canonicalize_server_url(url) == expected
