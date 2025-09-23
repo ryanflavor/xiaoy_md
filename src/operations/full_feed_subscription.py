@@ -266,7 +266,7 @@ def _load_env_file(env_file: Path) -> None:
 def _normalize_nats_url(url: str) -> str:
     try:
         parsed = urlparse(url)
-        if parsed.hostname == "nats":
+        if parsed.hostname in {"localhost", "127.0.0.1"}:
             return "nats://127.0.0.1:4222"
     except ValueError:
         return "nats://127.0.0.1:4222"
@@ -328,40 +328,127 @@ def _chunk(symbols: Sequence[str], size: int) -> Iterable[list[str]]:
         yield bucket
 
 
-async def _request_json(
+async def _request_json(  # noqa: PLR0913 - parameters mirror RPC tuning options
     nc: Any,
     subject: str,
     payload: dict[str, Any],
     timeout: float,
+    *,
+    max_attempts: int = 1,
+    retry_delay: float = 1.0,
+    logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
-    msg = await nc.request(subject, json.dumps(payload).encode(), timeout=timeout)
-    data = msg.data.decode()
-    try:
-        result = json.loads(data)
-    except json.JSONDecodeError as exc:
-        raise RpcResponseDecodeError(subject) from exc
-    if not isinstance(result, dict):
-        raise ContractsPayloadError.unexpected_response(subject)
-    return result
+    attempts = max(1, int(max_attempts))
+    delay = retry_delay if retry_delay >= 0 else 0.0
+    from nats import errors as nats_errors
+
+    for attempt in range(1, attempts + 1):
+        try:
+            msg = await nc.request(
+                subject, json.dumps(payload).encode(), timeout=timeout
+            )
+        except (nats_errors.NoRespondersError, nats_errors.TimeoutError) as exc:
+            if attempt == attempts:
+                raise
+            if logger is not None:
+                logger.warning(
+                    "NATS request retry",
+                    extra={
+                        "subject": subject,
+                        "attempt": attempt,
+                        "max_attempts": attempts,
+                        "error": exc.__class__.__name__,
+                    },
+                )
+            if delay:
+                await asyncio.sleep(delay)
+            continue
+
+        data = msg.data.decode()
+        try:
+            result = json.loads(data)
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            raise RpcResponseDecodeError(subject) from exc
+        if not isinstance(result, dict):
+            raise ContractsPayloadError.unexpected_response(subject)
+        return result
+
+    raise AssertionError
 
 
 async def _fetch_contracts(
     nc: Any,
     timeout: float,
+    *,
+    max_attempts: int = 1,
+    retry_delay: float = 1.0,
+    logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     return await _request_json(
-        nc, "md.contracts.list", {"timeout_s": timeout}, timeout + 5.0
+        nc,
+        "md.contracts.list",
+        {"timeout_s": timeout},
+        timeout + 5.0,
+        max_attempts=max_attempts,
+        retry_delay=retry_delay,
+        logger=logger,
     )
 
 
-async def _bulk_subscribe(
+async def _bulk_subscribe(  # noqa: PLR0913 - NATS request options kept explicit
     nc: Any,
     symbols: Sequence[str],
     timeout: float,
+    *,
+    max_attempts: int = 1,
+    retry_delay: float = 1.0,
+    logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     return await _request_json(
-        nc, "md.subscribe.bulk", {"symbols": list(symbols)}, timeout
+        nc,
+        "md.subscribe.bulk",
+        {"symbols": list(symbols)},
+        timeout,
+        max_attempts=max_attempts,
+        retry_delay=retry_delay,
+        logger=logger,
     )
+
+
+async def _fetch_active_subscriptions(  # noqa: PLR0913 - tuning parameters exposed
+    nc: Any,
+    timeout: float,
+    *,
+    max_attempts: int = 1,
+    retry_delay: float = 1.0,
+    logger: logging.Logger | None = None,
+    limit: int | None = None,
+) -> tuple[set[str], bool]:
+    try:
+        payload = await _request_json(
+            nc,
+            "md.subscriptions.active",
+            {"limit": limit} if limit else {},
+            timeout,
+            max_attempts=max_attempts,
+            retry_delay=retry_delay,
+            logger=logger,
+        )
+    except Exception:  # noqa: BLE001 - broad except to surface transport failures
+        return set(), False
+
+    subscriptions = payload.get("subscriptions") or []
+    active: set[str] = set()
+    for entry in subscriptions:
+        if isinstance(entry, dict):
+            value = entry.get("symbol") or entry.get("vt_symbol")
+        else:
+            value = entry
+        text = str(value or "").strip()
+        if text:
+            active.add(text)
+    truncated = bool(payload.get("truncated"))
+    return active, truncated
 
 
 def _configure_logging(verbose: bool) -> logging.Logger:
@@ -409,7 +496,37 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
     await nc.connect(**options)
 
     try:
-        contract_response = await _fetch_contracts(nc, args.contracts_timeout)
+        request_attempts = max(1, int(args.nats_request_attempts))
+        request_retry_delay = max(0.0, float(args.nats_request_retry_delay))
+
+        active_subscriptions: set[str] = set()
+        if not args.dry_run:
+            active_subscriptions, truncated = await _fetch_active_subscriptions(
+                nc,
+                args.subscribe_timeout,
+                max_attempts=request_attempts,
+                retry_delay=request_retry_delay,
+                logger=logger,
+                limit=int(os.getenv("SUBSCRIPTIONS_ACTIVE_LIMIT", "0") or 0) or None,
+            )
+            if active_subscriptions:
+                logger.info(
+                    "Detected %s active subscriptions before start%s",
+                    len(active_subscriptions),
+                    " (truncated)" if truncated else "",
+                )
+            if truncated:
+                logger.info(
+                    "Active subscriptions truncated; proceeding with available subset",
+                )
+
+        contract_response = await _fetch_contracts(
+            nc,
+            args.contracts_timeout,
+            max_attempts=request_attempts,
+            retry_delay=request_retry_delay,
+            logger=logger,
+        )
         symbols = contract_response.get("symbols") or []
         if not isinstance(symbols, list):
             raise ContractsPayloadError.missing_symbols()
@@ -481,22 +598,85 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
             return summary
 
         limiter = RateLimiter(args.rate_limit_max, args.rate_limit_window)
-        pending: deque[str] = deque(filtered)
+        symbol_lookup: set[str] = set(filtered)
         accepted_set: set[str] = set()
+        if active_subscriptions:
+            for sym in active_subscriptions:
+                if sym in symbol_lookup and sym not in accepted_set:
+                    accepted_set.add(sym)
+                    summary.accepted_symbols.append(sym)
+            if accepted_set:
+                logger.info(
+                    "Skipping %s symbols already active",
+                    len(accepted_set),
+                )
+
+        pending: deque[str] = deque(sym for sym in filtered if sym not in accepted_set)
         retry_counts: dict[str, int] = {}
+        timeout_retry_counts: dict[str, int] = {}
         batch_index = 0
         rate_limit_hits_total = 0
+        batch_limit = max(1, min(args.batch_size, len(pending)) or 1)
 
         while pending:
-            batch_symbols: list[str] = []
-            while pending and len(batch_symbols) < args.batch_size:
-                batch_symbols.append(pending.popleft())
+            current_batch = min(batch_limit, len(pending))
+            batch_symbols = [pending.popleft() for _ in range(current_batch)]
             if not batch_symbols:
                 continue
 
             await limiter.acquire(len(batch_symbols))
             start = time.perf_counter()
-            response = await _bulk_subscribe(nc, batch_symbols, args.subscribe_timeout)
+            try:
+                response = await _bulk_subscribe(
+                    nc,
+                    batch_symbols,
+                    args.subscribe_timeout,
+                    max_attempts=request_attempts,
+                    retry_delay=request_retry_delay,
+                    logger=logger,
+                )
+            except Exception as exc:
+                from nats import errors as nats_errors
+
+                if isinstance(exc, nats_errors.TimeoutError):
+                    if len(batch_symbols) == 1:
+                        sym = batch_symbols[0]
+                        timeout_retry_counts[sym] = timeout_retry_counts.get(sym, 0) + 1
+                        if timeout_retry_counts[sym] >= request_attempts:
+                            summary.rejected_items.append(
+                                {
+                                    "symbol": sym,
+                                    "reason": "timeout",
+                                    "note": "max_timeout_retries_exceeded",
+                                }
+                            )
+                            logger.warning(
+                                "Timeout subscribing %s after %s attempts",
+                                sym,
+                                timeout_retry_counts[sym],
+                            )
+                            continue
+                        if request_retry_delay:
+                            await asyncio.sleep(request_retry_delay)
+                        pending.appendleft(sym)
+                        continue
+
+                    batch_limit = max(1, len(batch_symbols) // 2)
+                    if request_retry_delay:
+                        await asyncio.sleep(request_retry_delay)
+                    logger.warning(
+                        "Bulk subscribe timeout; reducing batch size",
+                        extra={
+                            "batch_size": len(batch_symbols),
+                            "next_limit": batch_limit,
+                        },
+                    )
+                    for sym in reversed(batch_symbols):
+                        if sym not in accepted_set:
+                            pending.appendleft(sym)
+                    continue
+                raise
+
             duration = time.perf_counter() - start
 
             accepted = [str(s) for s in response.get("accepted") or []]
@@ -526,8 +706,9 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
 
             for symbol in accepted:
                 if symbol not in accepted_set:
-                    summary.accepted_symbols.append(symbol)
                     accepted_set.add(symbol)
+                    summary.accepted_symbols.append(symbol)
+                    timeout_retry_counts.pop(symbol, None)
 
             rate_limited: list[str] = []
             actionable_rejections: list[dict[str, str]] = []
@@ -570,7 +751,8 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
                     )
                     await asyncio.sleep(args.rate_limit_retry_delay)
                 for symbol in reversed(rate_limited):
-                    pending.appendleft(symbol)
+                    if symbol not in accepted_set:
+                        pending.appendleft(symbol)
 
         if summary.rejected_items:
             rejected_path = out_dir / "rejections.json"
@@ -587,10 +769,9 @@ async def run_workflow(  # noqa: PLR0912, PLR0915 - orchestration flow
         logger.info("Summary written -> %s", summary_path)
 
         if metrics_exporter is not None:
+            total_symbols = len(symbol_lookup)
             coverage_ratio = (
-                len(summary.accepted_symbols) / summary.total_symbols
-                if summary.total_symbols
-                else 0.0
+                len(summary.accepted_symbols) / total_symbols if total_symbols else 0.0
             )
             metrics_exporter.observe_coverage(coverage_ratio)
             logger.info(
@@ -625,6 +806,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="NATS password",
     )
     parser.add_argument(
+        "--nats-request-attempts",
+        type=int,
+        default=int(os.getenv("NATS_REQUEST_ATTEMPTS", "6") or 6),
+        help="Max attempts when NATS reports no responders/timeout (>=1)",
+    )
+    parser.add_argument(
+        "--nats-request-retry-delay",
+        type=float,
+        default=float(os.getenv("NATS_REQUEST_RETRY_DELAY", "1.0") or 1.0),
+        help="Delay between request retries when responders unavailable",
+    )
+    parser.add_argument(
         "--contracts-timeout",
         type=float,
         default=5.0,
@@ -639,8 +832,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=20000,
-        help="Number of symbols per bulk subscribe request",
+        default=int(os.getenv("SUBSCRIBE_BATCH_SIZE", "500") or 500),
+        help="Number of symbols per bulk subscribe request (default 500)",
     )
     parser.add_argument(
         "--limit",
@@ -742,6 +935,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.metrics_port < 0:
         parser.error("--metrics-port must be >= 0")
 
+    if args.batch_size < 1:
+        parser.error("--batch-size must be >= 1")
+    if args.nats_request_attempts < 1:
+        parser.error("--nats-request-attempts must be >= 1")
+    if args.nats_request_retry_delay < 0:
+        parser.error("--nats-request-retry-delay must be >= 0")
+
     # Propagate session metadata to environment for downstream tooling.
     os.environ["SESSION_WINDOW"] = args.window
     os.environ["SESSION_CONFIG"] = args.config
@@ -759,6 +959,7 @@ def main(argv: list[str] | None = None) -> int:
     args.password = password
 
     logger = _configure_logging(args.verbose)
+    logger.info("Connecting to NATS at %s", nats_url)
     try:
         asyncio.run(run_workflow(args, logger))
     except Exception:

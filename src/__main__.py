@@ -17,11 +17,17 @@ try:
 except ImportError:  # pragma: no cover - fallback for older versions
     from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore[attr-defined]
 
+from pydantic import SecretStr
+
 from src.application.observability import (
     IngestMetricLabels,
     PrometheusMetricsExporter,
 )
-from src.application.services import MarketDataService, ServiceDependencies
+from src.application.services import (
+    MarketDataService,
+    RateLimitConfig,
+    ServiceDependencies,
+)
 from src.config import settings
 from src.infrastructure.ctp_adapter import CTPGatewayAdapter
 from src.infrastructure.nats_publisher import NATSPublisher, RetryConfig
@@ -55,7 +61,11 @@ def _coerce_settings_for_runtime(settings_obj: Any) -> None:
     """Ensure patched settings provide strings for NATS configuration."""
 
     def _as_str(value: Any, default: str | None = None) -> str | None:
-        if value is None or isinstance(value, str):
+        if value is None:
+            return default
+        if isinstance(value, SecretStr):
+            return value.get_secret_value()
+        if isinstance(value, str):
             return value
         return default
 
@@ -130,12 +140,36 @@ async def run_service() -> None:  # noqa: PLR0912, PLR0915
             )
 
         # Create service with NATS publisher and attach adapter as market data port
+        def _positive_float(value: Any) -> float | None:
+            try:
+                result = float(value)
+            except (TypeError, ValueError):
+                return None
+            return result if result > 0 else None
+
+        def _positive_int(value: Any) -> int | None:
+            try:
+                result = int(value)
+            except (TypeError, ValueError):
+                return None
+            return result if result > 0 else None
+
+        rate_limit_config = RateLimitConfig(
+            window_seconds=_positive_float(
+                getattr(settings, "subscribe_rate_limit_window_seconds", None)
+            ),
+            max_requests=_positive_int(
+                getattr(settings, "subscribe_rate_limit_max_requests", None)
+            ),
+        )
+
         service = MarketDataService(
             ports=ServiceDependencies(
                 market_data=adapter,
                 publisher=nats_publisher,
                 metrics_exporter=metrics_exporter,
             ),
+            rate_limits=rate_limit_config,
         )
 
         try:

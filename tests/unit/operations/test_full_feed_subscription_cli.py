@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
+import json
+import logging
 import os
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+from nats import errors as nats_errors
 from prometheus_client import CollectorRegistry
 from prometheus_client.parser import text_string_to_metric_families
 import pytest
@@ -110,3 +115,175 @@ def test_subscription_metrics_exporter_records_values():
 
     rate_limit_sample = families["md_rate_limit_hits"].samples[0]
     assert rate_limit_sample.value == 3.0
+
+
+@pytest.mark.asyncio
+async def test_request_json_retries_when_no_responders():
+    attempts: list[int] = []
+
+    class DummyNC:
+        async def request(self, _subject, _payload, _timeout):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise nats_errors.NoRespondersError
+            return SimpleNamespace(data=json.dumps({"ok": True}).encode("utf-8"))
+
+    result = await ffs._request_json(  # noqa: SLF001 - exercising internal helper
+        DummyNC(),
+        "subject",
+        {"foo": "bar"},
+        timeout=0.1,
+        max_attempts=3,
+        retry_delay=0,
+        logger=None,
+    )
+
+    assert result == {"ok": True}
+    assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_request_json_raises_after_retry_exhausted():
+    attempt_count = 0
+
+    class DummyNC:
+        async def request(self, _subject, _payload, _timeout):
+            nonlocal attempt_count
+            attempt_count += 1
+            raise nats_errors.NoRespondersError
+
+    with pytest.raises(nats_errors.NoRespondersError) as exc_info:
+        await ffs._request_json(  # noqa: SLF001 - exercising internal helper
+            DummyNC(),
+            "subject",
+            {"foo": "bar"},
+            timeout=0.1,
+            max_attempts=2,
+            retry_delay=0,
+            logger=None,
+        )
+
+    assert isinstance(exc_info.value, nats_errors.NoRespondersError)
+    assert attempt_count == 2
+
+
+@pytest.mark.asyncio
+async def test_request_json_retries_on_timeout():
+    attempts = 0
+
+    class DummyNC:
+        async def request(self, _subject, _payload, _timeout):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise nats_errors.TimeoutError
+            return SimpleNamespace(data=json.dumps({"ok": True}).encode("utf-8"))
+
+    result = await ffs._request_json(  # noqa: SLF001 - exercising internal helper
+        DummyNC(),
+        "subject",
+        {"foo": "bar"},
+        timeout=0.1,
+        max_attempts=3,
+        retry_delay=0,
+        logger=None,
+    )
+
+    assert result == {"ok": True}
+    assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_request_json_timeout_after_retry_exhausted():
+    attempts = 0
+
+    class DummyNC:
+        async def request(self, _subject, _payload, _timeout):
+            nonlocal attempts
+            attempts += 1
+            raise nats_errors.TimeoutError
+
+    with pytest.raises(nats_errors.TimeoutError):
+        await ffs._request_json(  # noqa: SLF001 - exercising internal helper
+            DummyNC(),
+            "subject",
+            {"foo": "bar"},
+            timeout=0.1,
+            max_attempts=2,
+            retry_delay=0,
+            logger=None,
+        )
+
+    assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_reduces_batch_after_timeout(monkeypatch, tmp_path):
+    async def fake_fetch_contracts(_nc, _timeout, **_kwargs):
+        return {"symbols": ["S1", "S2", "S3", "S4"], "source": "test"}
+
+    calls: list[list[str]] = []
+
+    from nats import errors as nats_errors
+
+    async def fake_bulk_subscribe(_nc, symbols, _timeout, **_kwargs):
+        calls.append(list(symbols))
+        if len(symbols) > 1:
+            raise nats_errors.TimeoutError
+        return {"accepted": list(symbols), "rejected": []}
+
+    class DummyNATS:
+        async def connect(self, **_):
+            return None
+
+        async def close(self):
+            return None
+
+    async def noop_acquire(self, _count):
+        return None
+
+    monkeypatch.setattr(ffs, "_fetch_contracts", fake_fetch_contracts)
+    monkeypatch.setattr(ffs, "_bulk_subscribe", fake_bulk_subscribe)
+
+    async def fake_fetch_active(_nc, _timeout, **_kwargs):
+        return set(), False
+
+    monkeypatch.setattr(ffs, "_fetch_active_subscriptions", fake_fetch_active)
+    from nats.aio import client as nats_client_module
+
+    monkeypatch.setattr(nats_client_module, "Client", DummyNATS)
+    monkeypatch.setattr(ffs.RateLimiter, "acquire", noop_acquire)
+
+    args = argparse.Namespace(
+        env_file=".env",  # unused in test
+        nats_url="nats://localhost:4222",
+        user="user",
+        password="pass",  # pragma: allowlist secret
+        contracts_timeout=1.0,
+        subscribe_timeout=0.1,
+        batch_size=4,
+        limit=None,
+        include=None,
+        exclude=None,
+        output_dir=str(tmp_path),
+        rate_limit_max=0,
+        rate_limit_window=0,
+        rate_limit_retry_delay=0.0,
+        max_retries=0,
+        allow_ampersand=True,
+        dry_run=False,
+        verbose=False,
+        window="day",
+        config="primary",
+        metrics_host="127.0.0.1",
+        metrics_port=0,
+        metrics_disable=True,
+        nats_request_attempts=1,
+        nats_request_retry_delay=0.0,
+    )
+
+    logger = logging.getLogger("test")
+    summary = await ffs.run_workflow(args, logger)
+
+    assert len(summary.accepted_symbols) == 4
+    assert any(len(call) == 1 for call in calls)

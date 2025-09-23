@@ -19,6 +19,7 @@
   - `--out {json,csv}`、`--out-dir`、`--log-prefix`：生成审计制品及日志的路径设置。
 - **输出**: stdout 输出结构化摘要，默认生成 `logs/runbooks/<prefix>_YYYYMMDD-HHMMSS.log` JSON 日志；可选 JSON/CSV 制品用于审计。
 - **指标**: 推送 `md_subscription_coverage_ratio`、`md_subscription_missing_total`、`md_subscription_stalled_total` 至 Pushgateway，标签包含 `feed`、`account`、`session_window`。
+- **可视化**: Operations Console → Subscription Health 页面实时展示最近一次健康检查的覆盖率、缺失/停滞合约以及警告/错误摘要，可作为脚本输出的双语可视化入口。
 
 ---
 

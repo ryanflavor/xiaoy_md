@@ -37,6 +37,12 @@
 * **Strategy**: Script-based Docker Deployment.
 * **CI/CD Platform**: GitHub Actions.
 * **Image Registry**: **GitHub Container Registry (GHCR)**. CI will build and push images; on-prem servers will pull from GHCR.
+* **Operations Console UI**:
+  - Build pipeline: `cd ui/operations-console && npm ci && npm run build`（生成静态资源于 `dist/`）。
+  - Artifact promotion: 将 `dist/` 打包为版本化 tarball（`ops-console-v{git_sha}.tar.gz`）并发布至 GHCR 或对象存储；生产环境通过 Nginx `root` 指向解压目录。
+  - Runtime configuration: `VITE_OPS_API_BASE_URL` 与 `VITE_OPS_API_TOKEN` 在部署时以环境变量注入，默认读取 `/etc/ops-console/.env`。
+  - Rollback: 保留最近三个 UI 构建包，切换 Nginx symlink 到 `releases/<previous_tag>` 并执行 `systemctl reload nginx`。
+  - CI 扩展：新增 `ui-console` job 执行 `npm run test`（Vitest）、`npm run test:e2e -- --reporter=list --retries=1`（Playwright，使用 mock API），再运行 `npm run build`，将构建产物作为 workflow artifact 供后续部署作业下载。
 
 ## **Environments & Promotion Flow**
 

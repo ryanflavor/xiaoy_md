@@ -56,7 +56,17 @@ class TestMainIntegration:
                     # Verify service was created with NATS publisher
                     mock_service_class.assert_called_once()
                     _, service_kwargs = mock_service_class.call_args
-                    assert service_kwargs["publisher_port"] is mock_publisher
+                    dependencies = service_kwargs["ports"]
+                    assert dependencies.publisher is mock_publisher
+                    rate_limits = service_kwargs["rate_limits"]
+                    assert (
+                        rate_limits.max_requests
+                        == test_settings.subscribe_rate_limit_max_requests
+                    )
+                    assert (
+                        rate_limits.window_seconds
+                        == test_settings.subscribe_rate_limit_window_seconds
+                    )
 
                     # Verify service was initialized and shutdown
                     mock_service.initialize.assert_called_once()

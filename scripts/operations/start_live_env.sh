@@ -476,17 +476,14 @@ start_subscription_worker() {
   fi
 
   cd "${ROOT_DIR}"
-  docker compose --profile "${PROFILE}" up -d subscription-worker > /dev/null 2>&1
-
-  local worker_container="${SUBSCRIPTION_CONTAINER_NAME:-subscription-worker}"
-  local worker_ready_cmd="docker inspect --format '{{.State.Health.Status}}' ${worker_container} 2>/dev/null | grep -qx healthy"
-
-  if check_readiness "subscription-worker" "${worker_ready_cmd}" 60; then
-    status_output "subscription-worker" "RUNNING" "Container ${worker_container} reports healthy"
+  local log_path="${LOG_DIR}/subscription_worker.log"
+  if docker compose --profile "${PROFILE}" run --rm subscription-worker \
+    >> "${log_path}" 2>&1; then
+    status_output "subscription-worker" "COMPLETED" "See ${log_path}"
     return 0
   fi
 
-  log_json "ERROR" "Subscription worker health check failed" 1
+  log_json "ERROR" "Subscription worker execution failed" 1
   return 1
 }
 

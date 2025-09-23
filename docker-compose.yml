@@ -151,7 +151,7 @@ services:
       <<: *common-env
       SESSION_WINDOW: ${SESSION_WINDOW:-day}
       SESSION_CONFIG: ${SESSION_CONFIG:-primary}
-      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_URL: ${SUBSCRIPTION_NATS_URL:-nats://nats:4222}
       NATS_USER: ${NATS_USER:-}
       NATS_PASSWORD: ${NATS_PASSWORD:-}
       PUSHGATEWAY_URL: ${PUSHGATEWAY_URL:-http://pushgateway:9091}
@@ -159,12 +159,13 @@ services:
       SUBSCRIPTION_METRICS_PORT: ${SUBSCRIPTION_METRICS_PORT:-9101}
     volumes:
       - ${SUBSCRIPTION_ENV_FILE:-./.env}:/app/.subscription.env:ro
+      - ${SOURCE_MOUNT:-./logs}:/app/logs
     depends_on:
       - nats
       - pushgateway
     networks:
       - market-data-network
-    restart: ${RESTART_POLICY:-unless-stopped}
+    restart: "no"
     healthcheck:
       test:
         - "CMD"

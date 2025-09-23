@@ -40,9 +40,11 @@
    - **Failure Handling:** Non-zero exit code → check logs, retry with `--debug`, escalate if 3 failures
    - **Audit:** Record exit code as metric `md_runbook_exit_code`
 4. **Verify Health 校验健康状态**
-   - 观察脚本输出，确认 `HEALTH=READY` 标记出现。
-   - `uv run python scripts/operations/check_feed_health.py --mode dry-run --skip-metrics --json-indent 2`，确认覆盖率≥99.5%，`missing_contracts[]` 为空。
-   - 核对最新日志 `logs/runbooks/subscription_check_*.log`，确保无 `exit_code>=2` 或 `event=health_check_escalation` 记录。
+ - 观察脚本输出，确认 `HEALTH=READY` 标记出现。
+  - `uv run python scripts/operations/check_feed_health.py --mode dry-run --skip-metrics --json-indent 2`，确认覆盖率≥99.5%，`missing_contracts[]` 为空。
+  - 核对最新日志 `logs/runbooks/subscription_check_*.log`，确保无 `exit_code>=2` 或 `event=health_check_escalation` 记录。
+  - 打开 Operations Console → Overview 页面，确认 Coverage Ratio、Throughput、Failover Latency 卡片均处于绿色或蓝色状态；如显示告警颜色，进入 Subscription Health 页面排查缺失/停滞合约。
+  - 通过 Console → Drill Control 页面执行一次 `Run Health Check`（mock 模式）以验证控制台认证与 API 返回是否正常。
 5. **Register Metrics 注册监控指标**
    - 检查 Prometheus Target `market-data-service-live` 状态为 `UP`。
    - `curl -sf http://localhost:9100/metrics | grep md_throughput_mps` => 返回最近样本。
@@ -98,6 +100,7 @@ Follow same steps as Day Session with adjusted timeline:
    - 主账户连接失败 > 3 次。
    - Prometheus 指标 `feed_failover_required` > 0。
 2. **执行步骤**：
+   - 优先使用 Operations Console → Overview 页面中的 “Trigger Failover / 触发故障切换” 卡片，控制台会在执行前弹出双语确认框，并在完成后显示 JSON 结果与延迟指标。如控制台不可用，再回退到以下 CLI 流程。
    1. `./scripts/operations/start_live_env.sh --failover --window <day|night> --profile live --config backup`。
    2. 脚本会导出 `ACTIVE_FEED=backup` 并加载 `CTP_BACKUP_*` 环境变量；所有 JSON 日志都带有 `"config":"backup"` 和屏蔽后的 `"account"` 字段便于审计。
    3. 监控 `md_failover_latency_ms` 指标必须 < 5,000ms。
@@ -170,6 +173,26 @@ incident:
   audit_files:
     - # List of relevant log files
 ```
+
+## 8. Operations Console Usage 控制台操作指南
+
+> Story 3.6 引入的前端控制台可在不直接 SSH 登录的情况下执行运维 Runbook 操作，并实时展示 Prometheus 指标。
+
+- **入口**：`ui/operations-console` 构建的 Web 前端，通过 Nginx 或 Vite Preview 暴露于 `https://ops-console.local/`。首次访问需提供 `OPS_API_TOKEN`（Bearer 头）。
+- **Overview 总览**：
+  - Coverage / Throughput / Failover Latency / Backlog 等核心指标与色彩状态同步 Prometheus。
+  - 右侧 Runbook 状态展示最近一次操作与健康检查结果，支持一键触发 `failover`、`failback`，执行前有双语确认弹窗，执行后展示 JSON 响应与 Asia/Shanghai 时间戳。
+- 详细角色、导航与状态图请参阅 `docs/ops/operations-console-spec.md`。
+- **Drill Control 演练控制**：
+  - `Start Drill`：mock 模式调用 `start_live_env.sh --drill` 包装 API，日志在面板内可预览，完成后自动刷新 Audit Timeline。
+  - `Run Health Check`：调用 `check_feed_health.py --mode enforce`（mock/live），用于演练前预检。
+- **Subscription Health 订阅健康**：
+  - 显示最后一次健康检查的缺失/停滞合约、警告/错误摘要。
+  - 操作员可在 CLI 审计之前先从页面获取关键异常详情。
+- **Audit Timeline 审计时间线**：
+  - 按时间倒序列出所有控制台执行的 Runbook 操作，含 `command`、`window`、`profile`、`exit_code`、`finished_at` 与 `reason` 字段。
+  - 使用 `Export CSV`（后续 roadmap）可导出同一数据集，当前可通过 API 响应中的 raw_output 下载。
+- **降级策略**：若控制台无法访问， fall back 到脚本流程；所有 console 操作仍写入 `logs/runbooks/start_live_env.log` 与 Pushgateway 指标，确保审计一致性。
 
 ---
 

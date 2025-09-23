@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from nats.aio.client import Client as NATS
 from nats.errors import ConnectionClosedError
 from nats.errors import TimeoutError as NATSTimeoutError
+from pydantic import SecretStr
 
 from src.config import AppSettings
 from src.domain.ports import MessagePublisherPort
@@ -28,6 +29,12 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 CHINA_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _resolve_secret(value: str | SecretStr | None) -> str | None:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
 
 
 class CircuitBreakerOpenError(ConnectionClosedError):
@@ -211,9 +218,11 @@ class NATSPublisher(MessagePublisherPort):
             options["max_reconnect_attempts"] = 1
 
         # Add authentication if configured (simple username/password only)
-        if self.settings.nats_user and self.settings.nats_password:
-            options["user"] = self.settings.nats_user
-            options["password"] = self.settings.nats_password
+        password = _resolve_secret(getattr(self.settings, "nats_password", None))
+        user = getattr(self.settings, "nats_user", None)
+        if user and password:
+            options["user"] = user
+            options["password"] = password
             logger.info("NATS authentication configured")
 
         return options

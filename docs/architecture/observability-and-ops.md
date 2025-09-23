@@ -76,6 +76,16 @@ Alerts route to the `#market-data-ops` channel (primary) and PagerDuty for criti
 * Failover playbooks annotate dashboards via Grafana annotation API with operator, timestamp, and exit code.
 * Subscription health escalations emit `event=health_check_escalation` logs and optionally execute the configured escalation command for Slack/PagerDuty handoff.
 
+## **Operations Console Integration**
+
+The Story 3.6 operations console sits on top of the observability plane and consumes the same Prometheus/Pushgateway sources that power Grafana:
+
+* **Metric aggregation API**: Backend exposes `/api/ops/metrics/summary` and `/api/ops/metrics/timeseries` which hydrate console widgets with `md_subscription_coverage_ratio`, `md_throughput_mps`, `md_failover_latency_ms`, `md_runbook_exit_code`, and `consumer_backlog_messages`. Queries enforce safe ranges (≤ 24h) and normalize timestamps to Asia/Shanghai.
+* **Pushgateway events**: Runbook executions push structured payloads (exit codes, failover latency, command metadata). The console subscribes via TanStack Query polling every 5–10s to surface real-time banners and drill-stage timelines.
+* **Failover annotations**: When `start_live_env.sh` executes failover/failback, it emits annotations to Grafana and persists JSON audit entries. The console merges these with Prometheus samples to render the Audit Timeline, offering download links to `logs/runbooks/` artifacts and highlighting latency deltas.
+* **Degraded mode**: If Prometheus or Pushgateway are unreachable, the console falls back to cached summaries and exposes remediation guidance aligned with Runbook §5 (routine health checks) and §4 (failover workflows).
+* **Security & masking**: API responses mask sensitive account identifiers and include operator scopes used to gate destructive actions initiated from the console.
+
 ## **Dependencies & Configuration**
 
 * Prometheus scrape job added under `config/prometheus/prometheus.yml` with 5s interval for live services and 60s for health checks.

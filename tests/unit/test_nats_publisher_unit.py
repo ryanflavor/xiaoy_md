@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from pydantic import SecretStr
 import pytest
 
 from src.config import AppSettings
@@ -40,3 +41,30 @@ async def test_nats_publisher_publish_calls_client_with_json_payload() -> None:
     decoded = json.loads(payload.decode())
     assert decoded["symbol"] == "IF2312.CFFEX"
     assert decoded["exchange"] == "CFFEX"
+
+
+def test_nats_publisher_connection_options_unwraps_secret_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in ("NATS_USER", "NATS_PASSWORD", "NATS_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "nats_url": "nats://localhost:4222",
+            "nats_user": "user",
+            "nats_password": SecretStr("topsecret"),  # pragma: allowlist secret
+            "nats_client_id": "client",
+            "environment": "development",
+            "app_name": "test-app",
+            "nats_health_check_subject": "health.check",
+        },
+    )()
+
+    pub = NATSPublisher(settings)
+    options = pub.create_connection_options()
+
+    assert options["user"] == "user"
+    assert options["password"] == "topsecret"  # pragma: allowlist secret
