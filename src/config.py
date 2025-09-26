@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import typing
@@ -13,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -188,6 +190,19 @@ class BackupCredentialProfile(BaseCredentialProfile):
     )
 
 
+def _dedupe_seq(seq: tuple[str, ...] | list[str] | str | None) -> tuple[str, ...]:
+    if seq is None or seq == "":
+        return ()
+    if isinstance(seq, str):
+        seq = [seq]
+    items: list[str] = []
+    for item in seq:
+        value = str(item).strip()
+        if value and value not in items:
+            items.append(value)
+    return tuple(items)
+
+
 class AppSettings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -226,6 +241,88 @@ class AppSettings(BaseSettings):
         "app_id": "CTP_BACKUP_APP_ID",
         "auth_code": "CTP_BACKUP_AUTH_CODE",
     }
+
+    @field_validator("ops_api_tokens", mode="before")
+    @classmethod
+    def _parse_ops_api_tokens(cls, value: Any) -> tuple[str, ...]:
+        if value is None or value == "":
+            return ()
+
+        def _tokenize(item: Any) -> list[str]:  # noqa: PLR0911
+            if item is None:
+                return []
+            if isinstance(item, list | tuple | set):
+                tokens: list[str] = []
+                for element in item:
+                    tokens.extend(_tokenize(element))
+                return tokens
+            if isinstance(item, str):
+                stripped = item.strip()
+                if not stripped:
+                    return []
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    working = stripped.replace("\n", ",")
+                    return [
+                        token
+                        for token in (part.strip() for part in working.split(","))
+                        if token
+                    ]
+                else:
+                    if isinstance(parsed, list | tuple | set):
+                        parsed_tokens: list[str] = []
+                        for element in parsed:
+                            parsed_tokens.extend(_tokenize(element))
+                        return parsed_tokens
+                    if isinstance(parsed, str):
+                        return _tokenize(parsed)
+                    return []
+            return _tokenize(str(item))
+
+        tokens = _tokenize(value)
+        # Preserve order while deduplicating
+        seen: dict[str, None] = {}
+        for token in tokens:
+            if token not in seen:
+                seen[token] = None
+        return tuple(seen)
+
+    @field_validator("ops_api_cors_origins", mode="before")
+    @classmethod
+    def _parse_ops_api_cors_origins(cls, value: Any) -> tuple[str, ...]:
+        return cls._parse_str_list(value)
+
+    @field_validator("ops_api_cors_allow_methods", mode="before")
+    @classmethod
+    def _parse_ops_api_cors_methods(cls, value: Any) -> tuple[str, ...]:
+        return cls._parse_str_list(value)
+
+    @staticmethod
+    def _parse_str_list(value: Any) -> tuple[str, ...]:
+        if value is None or value == "":
+            return ()
+
+        def _flatten(item: Any) -> list[str]:
+            if item is None:
+                return []
+            if isinstance(item, list | tuple | set):
+                tokens: list[str] = []
+                for element in item:
+                    tokens.extend(_flatten(element))
+                return tokens
+            text = str(item).strip()
+            if not text:
+                return []
+            working = text.replace("\n", ",")
+            return [token.strip() for token in working.split(",") if token.strip()]
+
+        tokens = _flatten(value)
+        seen: dict[str, None] = {}
+        for token in tokens:
+            if token not in seen:
+                seen[token] = None
+        return tuple(seen)
 
     @classmethod
     def _transform_external_data(cls, data: dict[str, Any]) -> dict[str, Any]:
@@ -407,10 +504,20 @@ class AppSettings(BaseSettings):
         description="Prometheus Pushgateway endpoint",
         validation_alias=AliasChoices("PUSHGATEWAY_URL"),
     )
-    ops_api_tokens: tuple[str, ...] = Field(
+    ops_api_tokens: tuple[str, ...] | list[str] | str = Field(
         default_factory=tuple,
         description="Bearer tokens authorized to call the operations API",
         validation_alias=AliasChoices("OPS_API_TOKENS", "OPS_API_TOKEN"),
+    )
+    ops_api_cors_origins: tuple[str, ...] | list[str] | str = Field(
+        default_factory=tuple,
+        description="Allowed CORS origins for the operations API",
+        validation_alias=AliasChoices("OPS_API_CORS_ORIGINS", "OPS_API_CORS_ORIGIN"),
+    )
+    ops_api_cors_allow_methods: tuple[str, ...] | list[str] | str = Field(
+        default_factory=tuple,
+        description="Allowed CORS methods for the operations API",
+        validation_alias=AliasChoices("OPS_API_CORS_METHODS", "OPS_API_CORS_METHOD"),
     )
     ops_runbook_script: Path = Field(
         default=Path("scripts/operations/start_live_env.sh"),
@@ -508,6 +615,8 @@ class AppSettings(BaseSettings):
             ]
             raise IncompleteBackupProfileError(missing)
         self._normalize_ops_tokens()
+        self._normalize_ops_cors_origins()
+        self._normalize_ops_cors_methods()
         self._normalize_ops_paths()
         return self
 
@@ -534,6 +643,21 @@ class AppSettings(BaseSettings):
                 if token and token not in tokens:
                     tokens.append(token)
         self.ops_api_tokens = tuple(tokens)
+
+    def _normalize_ops_cors_origins(self) -> None:
+        self.ops_api_cors_origins = _dedupe_seq(self.ops_api_cors_origins)
+
+    def _normalize_ops_cors_methods(self) -> None:
+        methods = tuple(
+            value.upper() for value in _dedupe_seq(self.ops_api_cors_allow_methods)
+        )
+        if not methods:
+            methods = ("GET",)
+        elif any(method == "*" for method in methods):
+            methods = ("*",)
+        elif "OPTIONS" not in methods:
+            methods = (*methods, "OPTIONS")
+        self.ops_api_cors_allow_methods = methods
 
     def _normalize_ops_paths(self) -> None:
         self.ops_runbook_script = Path(self.ops_runbook_script).expanduser().resolve()

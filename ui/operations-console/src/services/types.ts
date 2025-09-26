@@ -5,6 +5,7 @@ export type MetricPoint = {
   updated_at?: string | null;
   stale: boolean;
   source?: string | null;
+  context?: Record<string, unknown> | null;
 };
 
 export type MetricsSummary = {
@@ -40,6 +41,9 @@ export type HealthSnapshot = {
   coverage_ratio: number | null;
   expected_total: number | null;
   active_total: number | null;
+  matched_total?: number | null;
+  ignored_total?: number | null;
+  ignored_symbols?: string[];
   missing_contracts: string[];
   stalled_contracts: Array<Record<string, unknown>>;
   warnings: string[];

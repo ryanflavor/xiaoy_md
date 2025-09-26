@@ -14,6 +14,14 @@ scrape_configs:
         labels:
           component: "market-data-service"
 
+  - job_name: "market-data-live"
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - "market-data-live:9100"
+        labels:
+          component: "market-data-live"
+
   - job_name: "subscription-workers"
     scrape_interval: 60s
     static_configs:

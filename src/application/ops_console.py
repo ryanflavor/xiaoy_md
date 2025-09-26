@@ -41,6 +41,7 @@ CHINA_TZ = ZoneInfo("Asia/Shanghai")
 RUNBOOK_HISTORY_LIMIT = 40
 HEALTH_HISTORY_LIMIT = 20
 HEALTH_STALE_THRESHOLD_SECONDS = 300
+PROM_METRIC_STALE_THRESHOLD_SECONDS = 300
 
 
 class RunbookCommand(str, Enum):
@@ -129,6 +130,9 @@ class HealthCheckExecution(BaseModel):
         coverage = _safe_float(payload.get("coverage_ratio"))
         expected = _safe_int(payload.get("expected_total"))
         active = _safe_int(payload.get("active_total"))
+        matched = _safe_int(payload.get("matched_total"))
+        ignored_total = _safe_int(payload.get("ignored_total"))
+        ignored_symbols = list(payload.get("ignored_symbols") or [])
         missing: list[str] = list(payload.get("missing_contracts") or [])
         stalled_raw = payload.get("stalled_contracts") or []
         stalled = [dict(item) for item in stalled_raw if isinstance(item, dict)]
@@ -152,6 +156,9 @@ class HealthCheckExecution(BaseModel):
             coverage_ratio=coverage,
             expected_total=expected,
             active_total=active,
+            matched_total=matched,
+            ignored_total=ignored_total,
+            ignored_symbols=ignored_symbols,
             missing_contracts=missing,
             stalled_contracts=stalled,
             warnings=warnings,
@@ -200,6 +207,9 @@ class HealthSnapshot(BaseModel):
     coverage_ratio: float | None
     expected_total: int | None
     active_total: int | None
+    matched_total: int | None = None
+    ignored_total: int | None = None
+    ignored_symbols: list[str] = Field(default_factory=list)
     missing_contracts: list[str] = Field(default_factory=list)
     stalled_contracts: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -262,6 +272,7 @@ class MetricPoint(BaseModel):
     updated_at: datetime | None = None
     stale: bool = True
     source: str | None = None
+    context: dict[str, Any] | None = None
 
 
 class MetricsSummary(BaseModel):
@@ -597,7 +608,9 @@ class OperationsConsoleService:
         state = await self._repository.load()
         now = datetime.now(CHINA_TZ)
         coverage = self._metric_from_health(state.last_health, now)
-        throughput = await self._metric_from_prom("md_throughput_mps", "mps")
+        throughput = await self._metric_from_prom(
+            "md_throughput_mps", "mps", query="max_over_time(md_throughput_mps[1m])"
+        )
         failover_latency = await self._metric_from_prom("md_failover_latency_ms", "ms")
         runbook_exit = await self._metric_from_prom("md_runbook_exit_code", None)
         backlog = await self._metric_from_prom("consumer_backlog_messages", "messages")
@@ -617,10 +630,11 @@ class OperationsConsoleService:
         step_seconds: int = 60,
     ) -> TimeseriesSeries:
         """Fetch time-series data for the requested metric."""
+        metric_query = self._timeseries_query(metric)
         samples: list[PrometheusSample] = []
         if self._prometheus is not None:
             samples = await self._prometheus.query_range(
-                metric, minutes=minutes, step_seconds=step_seconds
+                metric_query, minutes=minutes, step_seconds=step_seconds
             )
         points = [
             TimeseriesPoint(timestamp=s.timestamp, value=s.value) for s in samples
@@ -657,22 +671,40 @@ class OperationsConsoleService:
             updated_at=snapshot.generated_at,
             stale=age > HEALTH_STALE_THRESHOLD_SECONDS,
             source="health_report",
+            context={
+                "expected_total": snapshot.expected_total,
+                "active_total": snapshot.active_total,
+                "matched_total": snapshot.matched_total,
+                "ignored_total": snapshot.ignored_total,
+                "ignored_symbols": snapshot.ignored_symbols,
+            },
         )
 
-    async def _metric_from_prom(self, metric: str, unit: str | None) -> MetricPoint:
+    async def _metric_from_prom(
+        self, metric: str, unit: str | None, *, query: str | None = None
+    ) -> MetricPoint:
+        prom_query = query or metric
         if self._prometheus is None:
-            return MetricPoint(metric=metric, value=None, unit=unit)
-        sample = await self._prometheus.query_latest(metric)
+            return MetricPoint(metric=metric, value=None, unit=unit, stale=True)
+        sample = await self._prometheus.query_latest(prom_query)
         if sample is None:
-            return MetricPoint(metric=metric, value=None, unit=unit)
+            return MetricPoint(metric=metric, value=None, unit=unit, stale=True)
+        age_seconds = (datetime.now(CHINA_TZ) - sample.timestamp).total_seconds()
+        stale = age_seconds > PROM_METRIC_STALE_THRESHOLD_SECONDS
         return MetricPoint(
             metric=metric,
             value=sample.value,
             unit=unit,
             updated_at=sample.timestamp,
-            stale=False,
+            stale=stale,
             source="prometheus",
+            context={"age_seconds": age_seconds},
         )
+
+    def _timeseries_query(self, metric: str) -> str:
+        if metric == "md_throughput_mps":
+            return "max_over_time(md_throughput_mps[1m])"
+        return metric
 
 
 class ExecutionEnvelope(BaseModel):

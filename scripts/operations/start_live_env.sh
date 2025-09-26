@@ -19,6 +19,7 @@ ACTION="start"
 DEBUG="${DEBUG:-0}"
 MANAGE_LIVE="${MANAGE_LIVE:-1}"
 MANAGE_NATS="${MANAGE_NATS:-1}"
+MANAGE_OPS_API="${MANAGE_OPS_API:-1}"
 MOCK_MODE="${MOCK_MODE:-${ORCH_TEST_MODE:-0}}"
 ENV_FILE_OVERRIDE="${ENV_FILE:-}"
 ENV_FILE=""
@@ -132,6 +133,10 @@ start_components() {
 
   if ! start_market_data_service; then
     return 2
+  fi
+
+  if ! start_ops_api; then
+    return 22
   fi
 
   if ! start_market_data_live; then
@@ -271,6 +276,41 @@ verify_consumer_metrics() {
   return 1
 }
 
+sync_status() {
+  if [[ "${SKIP_STATUS_SYNC:-0}" == "1" ]]; then
+    return 0
+  fi
+  local status_file="${OPS_STATUS_FILE:-${LOG_DIR}/ops_console_status.json}"
+  local active_profile="${CONFIG:-primary}"
+  local environment_mode="${ENVIRONMENT:-live}"
+  python - "${status_file}" "${active_profile}" "${environment_mode}" <<'PY'
+import json
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+import sys
+
+status_path = Path(sys.argv[1])
+profile = sys.argv[2]
+mode = sys.argv[3]
+
+try:
+    data = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+except Exception:
+    data = {}
+
+tz = timezone(timedelta(hours=8))
+if not isinstance(data, dict):
+    data = {}
+data.setdefault("environment_mode", mode)
+data["active_profile"] = profile
+data.setdefault("active_window", "day")
+data["last_updated_at"] = datetime.now(tz).isoformat()
+
+status_path.parent.mkdir(parents=True, exist_ok=True)
+status_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+PY
+}
+
 ensure_backup_profile_complete() {
   local missing=()
   for var in "${REQUIRED_BACKUP_VARS[@]}"; do
@@ -407,6 +447,32 @@ start_monitoring_stack() {
   check_readiness "prometheus" "${prom_ready_cmd}" 30 || true
 }
 
+start_ops_api() {
+  if [[ "${MANAGE_OPS_API}" != "1" ]]; then
+    log_json "INFO" "Skipping ops-api startup (MANAGE_OPS_API=${MANAGE_OPS_API})" 0
+    return 0
+  fi
+
+  log_json "INFO" "Ensuring ops-api service is running" 0
+
+  if [[ "${MOCK_MODE}" == "1" ]]; then
+    status_output "ops-api" "SKIPPED" "Mock mode"
+    return 0
+  fi
+
+  cd "${ROOT_DIR}"
+  docker compose --profile "${PROFILE}" up -d ops-api > /dev/null 2>&1 || true
+
+  local ops_ready_cmd="docker compose --profile ${PROFILE} ps --status running --services | grep -qx ops-api"
+  if check_readiness "ops-api" "${ops_ready_cmd}" 30; then
+    status_output "ops-api" "READY" "Service running"
+    return 0
+  fi
+
+  log_json "ERROR" "ops-api failed to start" 1
+  return 1
+}
+
 # Start Market Data Service
 start_market_data_service() {
   log_json "INFO" "Starting market-data-service" 0
@@ -502,6 +568,9 @@ stop_all() {
       docker compose --profile "${PROFILE}" down > /dev/null 2>&1 || true
     else
       local services=(market-data-service subscription-worker pushgateway prometheus)
+      if [[ "${MANAGE_OPS_API}" == "1" ]]; then
+        services+=(ops-api)
+      fi
       if [[ "${MANAGE_LIVE}" == "1" ]]; then
         services+=(market-data-live)
       fi
@@ -531,6 +600,7 @@ orchestrate() {
       sleep 5
       status_output "environment" "READY" "All components operational"
       log_json "INFO" "HEALTH=READY" 0
+      sync_status
       ;;
 
     restart)
@@ -550,6 +620,7 @@ orchestrate() {
       sleep 5
       status_output "environment" "READY" "Restart complete"
       log_json "INFO" "RESTART=OK" 0
+      sync_status
       ;;
 
     stop)
@@ -580,6 +651,7 @@ orchestrate() {
       push_metric "md_failover_latency_ms" $failover_latency
       log_json "INFO" "Failover completed in ${failover_latency}ms" 0
       status_output "environment" "READY" "Failover to backup complete"
+      sync_status
       ;;
 
     failback)
@@ -605,6 +677,7 @@ orchestrate() {
       push_metric "md_failback_latency_ms" $failback_latency
       log_json "INFO" "Failback completed in ${failback_latency}ms" 0
       status_output "environment" "READY" "Failback to primary complete"
+      sync_status
       ;;
 
     drill)
@@ -819,7 +892,19 @@ done
 if [[ -n "${ENV_FILE_OVERRIDE}" ]]; then
   ENV_FILE="${ENV_FILE_OVERRIDE}"
 else
-  ENV_FILE="${ROOT_DIR}/.env.${PROFILE}"
+  profile_env="${ROOT_DIR}/.env.${PROFILE}"
+  if [[ -f "${profile_env}" ]]; then
+    ENV_FILE="${profile_env}"
+  else
+    fallback_env="${ROOT_DIR}/.env"
+    if [[ ("${PROFILE}" == "live" || "${PROFILE}" == "ops") && -f "${fallback_env}" ]]; then
+      log_json "WARN" "Profile env ${profile_env} missing; falling back to ${fallback_env}" 0
+      ENV_FILE="${fallback_env}"
+    else
+      log_json "ERROR" "Environment file not found: ${profile_env}" 1
+      exit 1
+    fi
+  fi
 fi
 
 # Allow MOCK_MODE via environment variable ORCH_TEST_MODE

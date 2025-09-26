@@ -134,8 +134,20 @@ class StubPrometheusClient:
             PrometheusSample(metric="md_throughput_mps", value=5200.0, timestamp=now),
         ]
 
+    def _resolve(self, metric: str) -> PrometheusSample | None:
+        key = metric
+        if metric.startswith("max(") and metric.endswith(")"):
+            key = metric[4:-1]
+        elif metric.startswith("max_over_time(") and metric.endswith(")"):
+            inner = metric[len("max_over_time(") : -1]
+            if inner.endswith("]") and "[" in inner:
+                key = inner.split("[", 1)[0]
+            else:
+                key = inner
+        return self.latest.get(key)
+
     async def query_latest(self, metric: str) -> PrometheusSample | None:
-        return self.latest.get(metric)
+        return self._resolve(metric)
 
     async def query_range(
         self, metric: str, *, minutes: int, step_seconds: int = 60
@@ -230,6 +242,7 @@ async def test_metrics_summary_handles_missing_prometheus() -> None:
     assert summary.throughput_mps.value is None
     assert summary.failover_latency_ms.value is None
     assert summary.runbook_exit_code.value is None
+    assert summary.throughput_mps.stale is True
 
 
 @pytest.mark.asyncio
@@ -322,6 +335,7 @@ async def test_metric_from_prom_handles_null_sample() -> None:
     metric = await service._metric_from_prom("md_throughput_mps", "mps")  # noqa: SLF001
     assert metric.value is None
     assert metric.unit == "mps"
+    assert metric.stale is True
 
 
 @pytest.mark.asyncio
@@ -342,6 +356,7 @@ async def test_metric_from_prom_returns_sample() -> None:
     metric = await service._metric_from_prom("md_throughput_mps", "mps")  # noqa: SLF001
     assert metric.value == pytest.approx(42.0)
     assert metric.source == "prometheus"
+    assert metric.stale is False
 
 
 def test_metric_from_health_stale_flag() -> None:

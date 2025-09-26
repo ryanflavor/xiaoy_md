@@ -145,5 +145,7 @@ ACs: Configuration supports primary/backup credentials with clear routing preced
 
 - Story 3.6: Monitoring UI for dashboards if a dedicated front-end is required.
   故事 3.6：如需独立前端，则实现仪表盘可视化界面。
-- Story 3.7: SOPT or additional market source integration once production operations are stable.
-  故事 3.7：生产运维稳定后接入 SOPT 或其他行情源。
+- Story 3.7: Ops console + Docker Compose runtime integration providing runbook orchestration, health snapshots, and Prometheus proxying for the operations UI.
+  故事 3.7：将运维控制台与 Docker Compose 运行时打通，提供 Runbook 编排、健康快照以及 Prometheus 代理能力。
+- Story 3.8: SOPT or additional market source integration once production operations are stable.
+  故事 3.8：生产运维稳定后接入 SOPT 或其他行情源。

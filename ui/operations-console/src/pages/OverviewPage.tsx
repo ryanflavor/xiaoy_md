@@ -1,16 +1,32 @@
 import { useEffect } from "react";
 import { useMetricsQuery, useRunbookMutation, useStatusQuery } from "@/hooks/useOperationsData";
-import { ActionPanel, HealthStatCard, MetricChart, StatusBadge } from "@/components";
+import {
+  ActionPanel,
+  ErrorBanner,
+  HealthStatCard,
+  MetricChart,
+  StatusBadge,
+} from "@/components";
 import { useTimeseriesQuery } from "@/hooks/useOperationsData";
+import type { MetricPoint } from "@/services/types";
 import { useSessionStore } from "@/stores/sessionStore";
 import { en } from "@/i18n/en";
 import { zh } from "@/i18n/zh";
 
 export function OverviewPage() {
-  const { data: metrics } = useMetricsQuery();
-  const { data: status } = useStatusQuery();
-  const { setEnvironmentMode, setActiveProfile } = useSessionStore();
+  const statusQuery = useStatusQuery();
+  const metricsQuery = useMetricsQuery();
   const throughputSeries = useTimeseriesQuery("md_throughput_mps", 120);
+  const status = statusQuery.data;
+  const metrics = metricsQuery.data;
+  const latestHealth = status?.last_health;
+  const lastRunbook = status?.last_runbook;
+  const { setEnvironmentMode, setActiveProfile } = useSessionStore();
+
+  const firstError =
+    statusQuery.isError || metricsQuery.isError || throughputSeries.isError
+      ? statusQuery.error || metricsQuery.error || throughputSeries.error
+      : null;
 
   useEffect(() => {
     if (!status) {
@@ -21,26 +37,94 @@ export function OverviewPage() {
   }, [status, setEnvironmentMode, setActiveProfile]);
 
   const coverageMetric = metrics?.coverage_ratio;
+  const coverageValue = coverageMetric?.value ?? null;
+  const coverageStatus = determineStatus(coverageValue, {
+    success: 0.995,
+    warning: 0.98,
+  });
+  const coverageContext = (coverageMetric?.context ?? {}) as Record<string, unknown>;
+  const expectedTotal =
+    coerceNumber(coverageContext.expected_total) ??
+    coerceNumber(latestHealth?.expected_total);
+  const activeTotal =
+    coerceNumber(coverageContext.active_total) ??
+    coerceNumber(latestHealth?.active_total);
+  const matchedTotal =
+    coerceNumber(coverageContext.matched_total) ??
+    coerceNumber(latestHealth?.matched_total);
+  const ignoredTotal =
+    coerceNumber(coverageContext.ignored_total) ??
+    coerceNumber(latestHealth?.ignored_total);
+  const ignoredSymbolsRaw =
+    coverageContext.ignored_symbols ?? latestHealth?.ignored_symbols ?? [];
+  const ignoredSymbols = Array.isArray(ignoredSymbolsRaw)
+    ? (ignoredSymbolsRaw as string[])
+    : [];
+  const coverageUpdatedAt = coverageMetric?.updated_at ?? latestHealth?.generated_at ?? null;
+  const coverageStale = coverageMetric?.stale ?? false;
+  const missingContracts = latestHealth?.missing_contracts ?? [];
+  const missingCount = missingContracts.length;
+  const missingPreview = missingContracts.slice(0, 3);
+  const missingPreviewText = missingPreview.join(", ");
+  const healthErrors = latestHealth?.errors ?? [];
+  const coverageDisplay =
+    matchedTotal
+    ?? activeTotal
+    ?? (coverageValue !== null && expectedTotal !== null
+        ? Math.round(coverageValue * expectedTotal)
+        : null);
+  const coverageTrend =
+    coverageValue !== null
+      ? `Coverage: ${(coverageValue * 100).toFixed(2)}%${coverageStale ? " • Stale / 数据陈旧" : ""}`
+      : undefined;
+  const coverageSubtitle = buildCoverageSubtitle(
+    coverageUpdatedAt,
+    expectedTotal,
+    coverageDisplay,
+    ignoredTotal,
+    coverageStale,
+    missingCount,
+    latestHealth?.exit_code ?? null,
+  );
+  const coverageTooltipLines = [
+    coverageValue !== null
+      ? `Coverage ${(coverageValue * 100).toFixed(2)}%`
+      : null,
+    coverageStale
+      ? `Data stale: ${formatStaleAge(coverageUpdatedAt) ?? "unknown"}`
+      : null,
+    coverageDisplay !== null && expectedTotal !== null
+      ? `Subscribed ${coverageDisplay}/${expectedTotal}`
+      : null,
+    missingCount > 0
+      ? `Missing ${missingCount} contracts${missingPreviewText ? ` (e.g. ${missingPreviewText}${missingCount > missingPreview.length ? "…" : ""})` : ""}`
+      : null,
+    ignoredSymbols.length
+      ? `Ignored: ${ignoredSymbols.slice(0, 5).join(", ")}${ignoredSymbols.length > 5 ? "…" : ""}`
+      : null,
+    healthErrors.length
+      ? `Errors: ${healthErrors.slice(0, 2).join("; ")}${healthErrors.length > 2 ? "…" : ""}`
+      : null,
+  ].filter(Boolean) as string[];
+
   const throughputMetric = metrics?.throughput_mps;
   const failoverMetric = metrics?.failover_latency_ms;
   const backlogMetric = metrics?.consumer_backlog_messages;
 
-  const latestHealth = status?.last_health;
-  const lastRunbook = status?.last_runbook;
-
   return (
     <div className="flex flex-col gap-6">
+      {firstError ? <ErrorBanner error={firstError} /> : null}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <HealthStatCard
-          titleEn="Coverage Ratio"
-          titleZh="订阅覆盖率"
-          value={formatValue(coverageMetric?.value, "99.9%")}
-          unit={coverageMetric?.unit ?? "%"}
-          status={determineStatus(coverageMetric?.value ?? 0.0, {
-            success: 0.995,
-            warning: 0.98,
-          })}
-          subtitle={`Updated / 更新时间: ${formatUpdated(coverageMetric?.updated_at)}`}
+          titleEn="Coverage"
+          titleZh="订阅覆盖"
+          value={formatValue(coverageDisplay, "--", 0)}
+          unit="contracts"
+          status={coverageStatus}
+          trend={coverageTrend}
+          subtitle={coverageSubtitle}
+          tooltip={coverageTooltipLines.length ? coverageTooltipLines.join("\n") : undefined}
         />
         <HealthStatCard
           titleEn="Throughput"
@@ -48,26 +132,35 @@ export function OverviewPage() {
           value={formatValue(throughputMetric?.value, "-", 0)}
           unit="msg/s"
           status="info"
-          subtitle={`Updated / 更新时间: ${formatUpdated(throughputMetric?.updated_at)}`}
+          subtitle={buildMetricSubtitle(
+            throughputMetric,
+            "Awaiting metrics / 等待采样"
+          )}
         />
         <HealthStatCard
           titleEn="Failover Latency"
           titleZh="故障切换延迟"
           value={formatValue(failoverMetric?.value, "-", 0)}
           unit="ms"
-          status={determineLatencyStatus(failoverMetric?.value ?? 0)}
-          subtitle={`Updated / 更新时间: ${formatUpdated(failoverMetric?.updated_at)}`}
+          status={determineLatencyStatus(failoverMetric)}
+          subtitle={buildMetricSubtitle(
+            failoverMetric,
+            "No recent failover / 暂无近期切换"
+          )}
         />
         <HealthStatCard
           titleEn="Backlog"
           titleZh="下游堆积"
           value={formatValue(backlogMetric?.value, "-", 0)}
           unit="messages"
-          status={determineStatusInverse(backlogMetric?.value ?? 0, {
+          status={determineStatusInverse(backlogMetric?.value, {
             warning: 500,
             danger: 2000,
           })}
-          subtitle={`Updated / 更新时间: ${formatUpdated(backlogMetric?.updated_at)}`}
+          subtitle={buildMetricSubtitle(
+            backlogMetric,
+            "No exporter data / 暂无下游指标"
+          )}
         />
       </section>
 
@@ -158,7 +251,69 @@ function formatValue(value: number | null | undefined, fallback: string, fractio
   return value.toFixed(fractionDigits);
 }
 
-function determineStatus(value: number, thresholds: { success: number; warning: number }) {
+function coerceNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildCoverageSubtitle(
+  updatedAt: string | null | undefined,
+  expected: number | null,
+  covered: number | null,
+  ignored: number | null,
+  stale: boolean,
+  missingCount: number,
+  exitCode: number | null,
+) {
+  const parts: string[] = [];
+  if (updatedAt) {
+    const base = `Last health / 最近检查: ${formatUpdated(updatedAt)}`;
+    const ageLabel = formatStaleAge(updatedAt);
+    parts.push(
+      stale
+        ? `${base}${ageLabel ? ` (${ageLabel})` : ""}`
+        : `Updated / 更新时间: ${formatUpdated(updatedAt)}`,
+    );
+  } else if (stale) {
+    parts.push("Data stale / 数据陈旧");
+  }
+
+  if (expected !== null && covered !== null) {
+    parts.push(`Subscribed: ${covered}/${expected}`);
+  }
+  if (missingCount > 0) {
+    parts.push(`Missing: ${missingCount}`);
+  }
+  if (ignored && ignored > 0) {
+    parts.push(`Ignored: ${ignored}`);
+  }
+  if (typeof exitCode === "number") {
+    parts.push(`Exit ${exitCode}`);
+  }
+
+  if (parts.length === 0) {
+    return "Awaiting health check / 等待健康检查";
+  }
+  return parts.join(" • ");
+}
+
+function buildMetricSubtitle(metric: MetricPoint | undefined, emptyFallback: string) {
+  if (!metric || metric.value === null || metric.value === undefined || metric.stale) {
+    return emptyFallback;
+  }
+  return `Updated / 更新时间: ${formatUpdated(metric.updated_at ?? null)}`;
+}
+
+function determineStatus(
+  value: number | null | undefined,
+  thresholds: { success: number; warning: number },
+) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "info" as const;
+  }
   if (value >= thresholds.success) {
     return "success" as const;
   }
@@ -168,7 +323,13 @@ function determineStatus(value: number, thresholds: { success: number; warning: 
   return "danger" as const;
 }
 
-function determineStatusInverse(value: number, thresholds: { warning: number; danger: number }) {
+function determineStatusInverse(
+  value: number | null | undefined,
+  thresholds: { warning: number; danger: number },
+) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "info" as const;
+  }
   if (value >= thresholds.danger) {
     return "danger" as const;
   }
@@ -178,10 +339,11 @@ function determineStatusInverse(value: number, thresholds: { warning: number; da
   return "success" as const;
 }
 
-function determineLatencyStatus(value: number) {
-  if (value === 0) {
+function determineLatencyStatus(metric: MetricPoint | undefined) {
+  if (!metric || metric.value === null || metric.value === undefined || metric.stale) {
     return "info" as const;
   }
+  const value = metric.value;
   if (value <= 2000) {
     return "success" as const;
   }
@@ -198,4 +360,36 @@ function formatUpdated(updatedAt: string | null | undefined) {
   return new Date(updatedAt).toLocaleString("zh-CN", {
     hour12: false,
   });
+}
+
+function formatStaleAge(updatedAt: string | null | undefined): string | null {
+  if (!updatedAt) {
+    return null;
+  }
+  const timestamp = Date.parse(updatedAt);
+  if (Number.isNaN(timestamp)) {
+    return null;
+  }
+  const diffMs = Date.now() - timestamp;
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return null;
+  }
+
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) {
+    return "moments ago / 刚刚";
+  }
+  if (diffMs < hour) {
+    const minutes = Math.floor(diffMs / minute);
+    return `${minutes}m ago / ${minutes} 分钟前`;
+  }
+  if (diffMs < day) {
+    const hours = Math.floor(diffMs / hour);
+    return `${hours}h ago / ${hours} 小时前`;
+  }
+  const days = Math.floor(diffMs / day);
+  return `${days}d ago / ${days} 天前`;
 }

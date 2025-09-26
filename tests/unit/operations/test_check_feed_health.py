@@ -42,6 +42,13 @@ def make_record(
     )
 
 
+def test_subscription_record_from_payload_string_symbol():
+    record = health.SubscriptionRecord.from_payload("rb2501.SHFE")
+    assert record.subscription_id == "rb2501.SHFE"
+    assert record.vt_symbol == "rb2501.SHFE"
+    assert record.active is True
+
+
 def test_evaluate_health_success() -> None:
     expected = {"rb2401.SHFE", "IF2312.CFFEX"}
     records = [

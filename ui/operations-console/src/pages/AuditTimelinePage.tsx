@@ -1,13 +1,17 @@
 import { useMemo } from "react";
 import { useStatusQuery } from "@/hooks/useOperationsData";
+import { ErrorBanner } from "@/components";
 import { isoTimestamp } from "@/services/apiClient";
 
 export function AuditTimelinePage() {
-  const { data: status } = useStatusQuery();
+  const statusQuery = useStatusQuery();
+  const status = statusQuery.data;
   const history = useMemo(() => status?.runbook_history ?? [], [status]);
 
   return (
     <div className="flex flex-col gap-6">
+      {statusQuery.isError ? <ErrorBanner error={statusQuery.error} /> : null}
+
       <header className="card-surface">
         <h2 className="text-xl font-semibold text-neutral-100">
           Audit Timeline / 审计时间线

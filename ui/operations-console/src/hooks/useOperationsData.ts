@@ -29,7 +29,7 @@ export function useMetricsQuery() {
   return useQuery<MetricsSummary>({
     queryKey: METRICS_QUERY_KEY,
     queryFn: fetchMetricsSummary,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
   });
 }
 
@@ -47,7 +47,7 @@ export function useRunbookMutation() {
     mutationFn: async (partial) => {
       const payload: RunbookCommandPayload = {
         command: partial.command ?? "start",
-        mode: partial.mode ?? "mock",
+        mode: partial.mode ?? "live",
         window: partial.window ?? "day",
         profile: partial.profile ?? "live",
         request_id: partial.request_id ?? nanoid(),
@@ -61,6 +61,7 @@ export function useRunbookMutation() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: METRICS_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: ["ops", "series"] });
     },
   });
 }

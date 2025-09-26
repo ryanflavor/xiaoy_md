@@ -1,9 +1,10 @@
 import { useStatusQuery } from "@/hooks/useOperationsData";
-import { StatusBadge } from "@/components";
+import { ErrorBanner, StatusBadge } from "@/components";
 import { isoTimestamp } from "@/services/apiClient";
 
 export function SubscriptionHealthPage() {
-  const { data: status } = useStatusQuery();
+  const statusQuery = useStatusQuery();
+  const status = statusQuery.data;
   const health = status?.last_health;
 
   const missing = health?.missing_contracts ?? [];
@@ -11,6 +12,8 @@ export function SubscriptionHealthPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {statusQuery.isError ? <ErrorBanner error={statusQuery.error} /> : null}
+
       <header className="card-surface flex flex-col gap-3">
         <h2 className="text-xl font-semibold text-neutral-100">
           Subscription Health / 订阅健康

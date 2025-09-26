@@ -27,11 +27,34 @@
 - **Response** (`200 OK`):
   ```json
   {
-    "coverage_ratio": { "metric": "md_subscription_coverage_ratio", "value": 0.999, "unit": "%", "stale": false },
-    "throughput_mps": { "metric": "md_throughput_mps", "value": 5200, "unit": "msg/s", "stale": false },
+    "coverage_ratio": {
+      "metric": "md_subscription_coverage_ratio",
+      "value": 0.999,
+      "unit": null,
+      "stale": false,
+      "context": {
+        "expected_total": 1280,
+        "active_total": 1278,
+        "matched_total": 1276,
+        "ignored_total": 2
+      }
+    },
+    "throughput_mps": {
+      "metric": "md_throughput_mps",
+      "value": 5400,
+      "unit": "msg/s",
+      "stale": false,
+      "context": { "window": "max_over_time[1m]" }
+    },
     "failover_latency_ms": { "metric": "md_failover_latency_ms", "value": 1800, "unit": "ms", "stale": false },
     "runbook_exit_code": { "metric": "md_runbook_exit_code", "value": 0, "stale": false },
-    "consumer_backlog_messages": { "metric": "consumer_backlog_messages", "value": 12, "unit": "messages", "stale": false }
+    "consumer_backlog_messages": {
+      "metric": "consumer_backlog_messages",
+      "value": null,
+      "unit": "messages",
+      "stale": true,
+      "context": { "note": "no exporter sample" }
+    }
   }
   ```
 

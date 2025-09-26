@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.application.ops_console import (
     ExecutionEnvelope,
@@ -38,6 +40,15 @@ def create_app(
 ) -> FastAPI:
     """Create a FastAPI app with the operations console bindings."""
     resolved_settings = settings or get_settings()
+    health_dir = Path(resolved_settings.ops_health_output_dir)
+    health_dir.mkdir(parents=True, exist_ok=True)
+    status_file = Path(resolved_settings.ops_status_file)
+    status_file.parent.mkdir(parents=True, exist_ok=True)
+    if not status_file.exists() or status_file.stat().st_size == 0:
+        status_file.write_text(
+            OperationsStatusState().model_dump_json(indent=2), encoding="utf-8"
+        )
+
     if service is None:
         runbook_executor = RunbookExecutor(
             resolved_settings.ops_runbook_script,
@@ -70,6 +81,20 @@ def create_app(
         description="Automation and telemetry endpoints for the ops console",
     )
 
+    cors_origins = list(resolved_settings.ops_api_cors_origins)
+
+    allow_origins = cors_origins or ["*"]
+    if any(origin == "*" for origin in allow_origins):
+        allow_origins = ["*"]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     def get_service() -> OperationsConsoleService:
         return service
 
@@ -77,8 +102,11 @@ def create_app(
         return token_set
 
     async def require_token(
+        request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> str:
+        if request.method == "OPTIONS":  # Allow CORS preflight without auth
+            return "preflight"
         allowed_tokens = token_set
         if not allowed_tokens:
             raise HTTPException(
@@ -97,6 +125,11 @@ def create_app(
                 detail="Invalid authorization scheme",
             )
         if token not in allowed_tokens:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Unauthorized token access", extra={"provided_token": token}
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Unauthorized",

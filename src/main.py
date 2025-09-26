@@ -138,7 +138,7 @@ def _seed_contract_map(adapter: CTPGatewayAdapter, vt_symbol: str | None) -> Non
         adapter.symbol_contract_map[base] = object()
 
 
-async def _run() -> int:
+async def _run() -> int:  # noqa: PLR0915
     settings = AppSettings()
     # Auto-switch NATS URL when requested: inside Docker use hostname 'nats',
     # on host use localhost. Enable by setting LIVE_NATS_AUTOMODE=1.
@@ -170,6 +170,12 @@ async def _run() -> int:
             ),
             start_http=start_http,
         )
+    failover_threshold = os.environ.get("MD_FAILOVER_THRESHOLD_SECONDS")
+    failover_threshold_value = (
+        float(failover_threshold)
+        if failover_threshold is not None and failover_threshold.strip()
+        else None
+    )
     service = MarketDataService(
         ports=ServiceDependencies(
             market_data=adapter,
@@ -180,6 +186,8 @@ async def _run() -> int:
             window_seconds=settings.subscribe_rate_limit_window_seconds,
             max_requests=settings.subscribe_rate_limit_max_requests,
         ),
+        settings=settings,
+        failover_threshold_seconds=failover_threshold_value,
     )
 
     # Connect components

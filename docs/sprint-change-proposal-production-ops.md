@@ -111,7 +111,8 @@ Checklist §4 状态：
 
 3. **后续故事（可选）**
    - Story 3.6：监控前端 UI（若需要可视化界面）。
-   - Story 3.7：SOPT 行情接入扩展（待后期）。
+   - Story 3.7：运维控制台与 Compose 运行时联通（ops-api 服务、Prometheus 代理、Runbook 编排 UI）。
+   - Story 3.8：SOPT 行情接入扩展（待后期）。
 
 ### 6.2 架构 & 运维文档具体编辑提案
 - `docs/architecture/infrastructure-and-deployment.md`

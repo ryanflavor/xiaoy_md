@@ -15,6 +15,13 @@ const metricsPayload: MetricsSummary = {
     updated_at: "2025-09-22T08:00:00+08:00",
     stale: false,
     source: "health_report",
+    context: {
+      expected_total: 1280,
+      active_total: 1278,
+      matched_total: 1278,
+      ignored_total: 2,
+      ignored_symbols: ["OPT1", "OPT2"],
+    },
   },
   throughput_mps: {
     metric: "md_throughput_mps",
@@ -65,6 +72,9 @@ const statusPayload: StatusResponse = {
     coverage_ratio: 0.999,
     expected_total: 1280,
     active_total: 1280,
+    matched_total: 1280,
+    ignored_total: 0,
+    ignored_symbols: [],
     missing_contracts: [],
     stalled_contracts: [],
     warnings: [],
@@ -89,19 +99,25 @@ const seriesPayload: TimeseriesSeries = {
 
 describe("OverviewPage", () => {
   let originalFetch: typeof global.fetch;
+  let metricsResponse: MetricsSummary;
+  let statusResponse: StatusResponse;
+  let seriesResponse: TimeseriesSeries;
 
   beforeEach(() => {
+    metricsResponse = clone(metricsPayload);
+    statusResponse = clone(statusPayload);
+    seriesResponse = clone(seriesPayload);
     originalFetch = global.fetch;
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/ops/metrics/summary")) {
-        return mockResponse(metricsPayload);
+        return mockResponse(metricsResponse);
       }
       if (url.includes("/ops/status")) {
-        return mockResponse(statusPayload);
+        return mockResponse(statusResponse);
       }
       if (url.includes("/ops/metrics/timeseries")) {
-        return mockResponse(seriesPayload);
+        return mockResponse(seriesResponse);
       }
       if (url.includes("/ops/runbooks/execute")) {
         const body: RunbookExecuteResponse = {
@@ -143,9 +159,12 @@ describe("OverviewPage", () => {
     );
 
     await waitFor(() => {
-      screen.getByText(/Coverage Ratio/);
+      screen.getByText(/Coverage\b/);
     });
-    screen.getByText(/99\.9%/);
+    await waitFor(() => {
+      screen.getByText(/Subscribed: 1278\/1280/);
+    });
+    screen.getByText(/Coverage: 99\.87%/);
     expect(screen.getAllByText(/Throughput/).length).toBeGreaterThan(0);
     await waitFor(() =>
       expect(useSessionStore.getState().environmentMode).toBe("live")
@@ -154,6 +173,49 @@ describe("OverviewPage", () => {
       expect(useSessionStore.getState().activeProfile).toBe("primary")
     );
   });
+
+  it("shows stale coverage data with last known snapshot", async () => {
+    metricsResponse.coverage_ratio = {
+      metric: "md_subscription_coverage_ratio",
+      value: 0.905379,
+      unit: null,
+      updated_at: "2025-09-25T23:49:20+08:00",
+      stale: true,
+      source: "health_report",
+    };
+    statusResponse.last_health = {
+      request_id: "hc-stale",
+      mode: "live",
+      generated_at: "2025-09-25T23:49:20+08:00",
+      exit_code: 2,
+      coverage_ratio: 0.905379,
+      expected_total: 19520,
+      active_total: 17673,
+      matched_total: 17673,
+      ignored_total: 12,
+      ignored_symbols: ["TEST-1", "TEST-2"],
+      missing_contracts: ["M1", "M2", "M3", "M4"],
+      stalled_contracts: [],
+      warnings: [],
+      errors: ["Coverage ratio below threshold", "Missing contracts"],
+      report: {},
+    };
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OverviewPage />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      screen.getByText(/Coverage: 90\.54%/);
+    });
+    screen.getByText(/Stale /);
+    screen.getByText(/Missing: 4/);
+    expect(screen.getAllByText(/Exit 2/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^--$/)).toBeNull();
+  });
 });
 
 function mockResponse<T>(body: T): Response {
@@ -161,4 +223,8 @@ function mockResponse<T>(body: T): Response {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function clone<T>(data: T): T {
+  return JSON.parse(JSON.stringify(data)) as T;
 }

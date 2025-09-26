@@ -1,6 +1,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { useRunbookMutation } from "@/hooks/useOperationsData";
+import { resolveApiError } from "./ErrorBanner";
 import type { RunbookCommandPayload } from "@/services/types";
 import { isoTimestamp } from "@/services/apiClient";
 
@@ -30,6 +31,7 @@ export function ActionPanel({
   const mutation = useRunbookMutation();
   const [showConfirm, setShowConfirm] = useState(false);
   const [latestResult, setLatestResult] = useState<string | null>(null);
+  const mutationError = mutation.isError ? resolveApiError(mutation.error) : null;
 
   const trigger = () => {
     setShowConfirm(true);
@@ -73,8 +75,22 @@ export function ActionPanel({
         >
           {actionLabelEn} / {actionLabelZh}
         </button>
-        {mutation.isError ? (
-          <span className="text-sm text-danger">{mutation.error?.message}</span>
+        {mutationError ? (
+          <div className="text-sm text-danger">
+            <div>
+              {mutationError.primaryEn}
+              <span className="ml-2 text-neutral-400">{mutationError.primaryZh}</span>
+            </div>
+            <div className="text-xs text-neutral-400">
+              {mutationError.helperEn}
+              <span className="ml-2 text-neutral-500">{mutationError.helperZh}</span>
+            </div>
+            {mutationError.detail ? (
+              <div className="mt-1 text-xs text-neutral-500">
+                {mutationError.detail}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {latestResult ? (
