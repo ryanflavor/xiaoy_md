@@ -12,6 +12,14 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 
 
+@pytest.fixture(scope="module")
+def docker_test_image():
+    """Get the test Docker image name."""
+    # In CI, the image is built as market-data-service:latest
+    # This should match what's in docker-compose.yml
+    return "market-data-service:latest"
+
+
 def _choose_port(preferred: int) -> int:
     """Choose a free host port, prefer a given one if available."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
