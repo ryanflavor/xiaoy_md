@@ -219,13 +219,13 @@ PUSHGATEWAY_URL=http://localhost:9091
         assert result.returncode != 0
         assert "Environment file not found" in (result.stdout + result.stderr)
 
-    def test_audit_log_creation(self, script_path, tmp_path):
+    def test_audit_log_creation(self, script_path, temp_env_file, tmp_path):
         """Test that audit logs are created with correct format."""
         log_dir = tmp_path / "logs" / "runbooks"
         log_dir.mkdir(parents=True)
 
         env = os.environ.copy()
-        env.pop("ENV_FILE", None)
+        env["ENV_FILE"] = str(temp_env_file)
 
         # Run stop action (simplest to test)
         result = self.run_script(
