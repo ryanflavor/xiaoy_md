@@ -12,14 +12,6 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 
 
-@pytest.fixture(scope="module")
-def docker_test_image():
-    """Get the test Docker image name."""
-    # In CI, the image is built as market-data-service:latest
-    # This should match what's in docker-compose.yml
-    return "market-data-service:latest"
-
-
 def _choose_port(preferred: int) -> int:
     """Choose a free host port, prefer a given one if available."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -116,64 +108,95 @@ def nats_container():
 
 
 @pytest.fixture
-async def app_with_nats(nats_container, docker_test_image):
-    """Start application connected to NATS."""
-    container_name = "test-app-nats"
+async def app_with_nats(nats_container):
+    """Get application container for testing."""
+    import os
 
-    # Stop and remove any existing container
-    subprocess.run(
-        ["docker", "rm", "-f", container_name],
-        capture_output=True,
-        check=False,
-    )
+    # In CI, the application is already running via docker-compose
+    if os.environ.get("CI") == "true":
+        # Use the existing market-data-service container
+        container_name = "market-data-service"
 
-    # Start application container
-    result = subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            "--network",
-            "host",  # Use host network to access NATS on localhost:4222
-            "-e",
-            f"NATS_URL=nats://localhost:{nats_container['client_port']}",
-            "-e",
-            "LOG_LEVEL=DEBUG",
-            docker_test_image,
-        ],
-        capture_output=True,
-        check=True,
-    )
+        # Check if the container is running
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={container_name}"],
+            capture_output=True,
+            check=True,
+        )
 
-    container_id = result.stdout.decode().strip()
+        if not result.stdout.decode().strip():
+            # If not found, check docker-compose services
+            result = subprocess.run(
+                ["docker", "compose", "ps", "-q", "market-data-service"],
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.decode().strip():
+                container_name = "market-data-service"
+            else:
+                pytest.skip("market-data-service container not running in CI")
 
-    # Wait for application to connect to NATS
-    await asyncio.sleep(3)
+        yield container_name
+        # No cleanup needed for CI containers
+    else:
+        # Local testing: start our own container
+        container_name = "test-app-nats"
+        docker_test_image = "market-data-service:latest"
 
-    # Check if container is still running
-    result = subprocess.run(
-        ["docker", "ps", "-q", "-f", f"name={container_name}"],
-        capture_output=True,
-        check=True,
-    )
-
-    if not result.stdout.decode().strip():
-        # Container stopped, get logs for debugging
-        logs = subprocess.run(
-            ["docker", "logs", container_name],
+        # Stop and remove any existing container
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
             capture_output=True,
             check=False,
         )
-        pytest.fail(f"Application container stopped. Logs: {logs.stdout.decode()}")
 
-    yield container_name
+        # Start application container
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--network",
+                "host",  # Use host network to access NATS on localhost:4222
+                "-e",
+                f"NATS_URL=nats://localhost:{nats_container['client_port']}",
+                "-e",
+                "LOG_LEVEL=DEBUG",
+                docker_test_image,
+            ],
+            capture_output=True,
+            check=True,
+        )
 
-    # Cleanup
-    subprocess.run(
-        ["docker", "rm", "-f", container_name], capture_output=True, check=False
-    )
+        container_id = result.stdout.decode().strip()
+
+        # Wait for application to connect to NATS
+        await asyncio.sleep(3)
+
+        # Check if container is still running
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={container_name}"],
+            capture_output=True,
+            check=True,
+        )
+
+        if not result.stdout.decode().strip():
+            # Container stopped, get logs for debugging
+            logs = subprocess.run(
+                ["docker", "logs", container_name],
+                capture_output=True,
+                check=False,
+            )
+            pytest.fail(f"Application container stopped. Logs: {logs.stdout.decode()}")
+
+        yield container_name
+
+        # Cleanup
+        subprocess.run(
+            ["docker", "rm", "-f", container_name], capture_output=True, check=False
+        )
 
 
 @pytest.mark.integration
