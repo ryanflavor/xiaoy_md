@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const opsProxyTarget = process.env.VITE_OPS_API_PROXY_TARGET ?? "http://localhost:9180";
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -12,6 +14,13 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      "/api/ops": {
+        target: opsProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   test: {
     globals: true,

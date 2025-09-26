@@ -139,18 +139,19 @@ Micro-interactions:
 ## 6. Data Integration 数据集成
 
 ### Prometheus Metrics
-- `/api/ops/metrics/summary` aggregates `md_subscription_coverage_ratio`, `md_throughput_mps`, `md_failover_latency_ms`, `consumer_backlog_messages`, returning computed thresholds and trend data (see backend contract in Story 3.6).
-- `/api/ops/metrics/timeseries` proxied queries for chart components with server-side validation of query ranges.
+- `GET /api/ops/metrics/summary` aggregates `md_subscription_coverage_ratio`, `md_throughput_mps`, `md_failover_latency_ms`, and `consumer_backlog_messages`，并附带上下文字段：覆盖率返回 `expected/covered/ignored` 统计，吞吐率使用 `max_over_time(...[1m])`，缺少 backlog 样本时返回 `null` 以驱动 “Awaiting exporter data” 提示。
+- `GET /api/ops/metrics/timeseries` proxies Prometheus range queries with backend-side guardrails on lookback windows and step size；UI 默认拉取 120 分钟/60 秒采样。
 
 ### Runbook Automation APIs
-- `POST /api/ops/runbooks/execute` accepts `{command: "failover" | "failback" | "restart" | "start" | "stop" | "health_check", mode: "live" | "mock", window: "day" | "night", confirmation_token}`.
-- `GET /api/ops/runbooks/status` returns structured JSON: environment mode, active profile, last exit codes, pending actions, Asia/Shanghai timestamps.
-- Streams runbook logs via Server-Sent Events (`/api/ops/runbooks/log-stream?command=...`) for Drill Control live tail.
+- `POST /api/ops/runbooks/execute` 接收 `{command, mode, window, profile, config?, reason?, enforce?, dry_run?, confirmation_token?}`，返回 `ExecutionEnvelope`（Runbook 记录 + 可选健康快照）。
+- `GET /api/ops/status` 返回持久化的 `OperationsStatusState`：最后一次 Runbook、活跃账户、健康历史、Asia/Shanghai 时间戳。
+- 所有响应均以 JSON 返回；结构化日志（`logs[]`）内嵌在执行结果中，供 UI 渲染或下载。
 
 Authentication & Authorization:
-- Operators authenticate with SSO-backed JWT; API enforces audience `ops-console` and scopes `ops.runbook.execute` / `ops.metrics.read`.
-- Per-action guard checks ensure destructive commands require `ops.runbook.admin` scope.
-- Console spec documents least privilege role mapping (Ops Engineer vs Shift Lead).
+- API 采用静态 Bearer Token（`OPS_API_TOKENS`）校验；支持逗号分隔多令牌，便于轮换。
+- 允许访问的控制台来源通过 `OPS_API_CORS_ORIGINS` 配置，默认取值 `*` 以支持任意局域网来源；如需锁定范围，可在 `.env` 中改写为逗号分隔的具体来源，并确保 `OPS_API_CORS_METHODS` 包含 `OPTIONS`。
+- 前端通过 `.env` 注入 `VITE_OPS_API_TOKEN`，在请求头添加 `Authorization: Bearer <token>`。
+- 权限粒度后续可扩展为双 Token（读/写）；当前环境默认单 Token 具备读写能力，仍由 Runbook 确认弹窗提供防护。
 
 ---
 
@@ -158,10 +159,10 @@ Authentication & Authorization:
 
 | Scenario | UI Response | Operator Guidance |
 | :--- | :--- | :--- |
-| Metrics endpoint unreachable | Overview displays warning banner `无法获取指标 (Metrics Unavailable)` with retry control | Prompt to check Prometheus status; link to Runbook §5 health verification. |
-| Runbook execution fails | Drill Control banner in danger color, exit code + translated message; auto-scroll to Audit Timeline entry. | Provide retry CTA, open logs modal, suggest fallback runbook command. |
-| Authorization failure | Modal `权限不足 / Insufficient Privileges` with contact instructions. | Encourage Shift Lead to grant temporary token or escalate. |
-| SSE stream timeout | Toast `日志流已断开` with `Reconnect` button. | On reconnect, fetch last 50 log lines for context. |
+| Operations API unreachable / 5xx | 顶部出现 Danger 级别双语告警横幅，展示排查建议（校验 ops-api 服务、网络代理） | 登录主机检查 `docker compose ps ops-api`、`logs/runbooks/ops_console_status.json`，必要时回退脚本执行。 |
+| Metrics query failure | KPI 卡片显示 `--` 与黄色状态，Error Banner 提示检查 Prometheus；图表区域提示无法加载数据 | 验证 `prometheus:9090` 可用性，必要时重启监控栈或切换至 Runbook 指标核对。 |
+| Runbook执行 4xx/失败 | ActionPanel 内联展示双语错误说明，Audit Timeline 仍记录执行尝试 | 复核令牌权限或命令参数；连续失败 3 次改用 CLI Runbook 并在日志中标记。 |
+| Token 无效/过期 | Error Banner 显示 “请求未授权”，ActionPanel 禁止继续执行 | 重新申请/轮换 `OPS_API_TOKENS` 并更新 `.env`，同步记录审计。 |
 
 ---
 
@@ -177,7 +178,7 @@ Authentication & Authorization:
 ## 9. Non-Functional Requirements 非功能要求
 
 - Initial load (cold cache) < 3.5s on LAN assuming Prometheus/API available.
-- Polling interval defaults: Overview metrics 10s, charts 30s, status 5s (debounced).
+- Polling interval defaults: Overview metrics 60s（匹配 1 分钟吞吐峰值窗）、图表 30s、Status 5s（带去抖）。
 - UI tests validate accessibility (axe-core), i18n completeness, and Prometheus query guardrails.
 - Must run fully offline against mock APIs for drills; fixture data lives in `ui/operations-console/tests/__fixtures__`.
 

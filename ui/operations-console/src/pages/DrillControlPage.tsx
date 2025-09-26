@@ -1,10 +1,11 @@
-import { ActionPanel, StatusBadge } from "@/components";
+import { ActionPanel, ErrorBanner, StatusBadge } from "@/components";
 import { useRunbookMutation, useStatusQuery } from "@/hooks/useOperationsData";
 import { useSessionStore } from "@/stores/sessionStore";
 import { formatDistanceToNow } from "date-fns";
 
 export function DrillControlPage() {
-  const { data: status } = useStatusQuery();
+  const statusQuery = useStatusQuery();
+  const status = statusQuery.data;
   const mutation = useRunbookMutation();
   const sessionWindow = useSessionStore((state) => state.sessionWindow);
 
@@ -12,6 +13,8 @@ export function DrillControlPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {statusQuery.isError ? <ErrorBanner error={statusQuery.error} /> : null}
+
       <header className="card-surface flex flex-col gap-3">
         <h2 className="text-xl font-semibold text-neutral-100">
           Failover Drill Control / 故障演练控制
@@ -45,24 +48,23 @@ export function DrillControlPage() {
           actionLabelZh="启动演练"
           payload={{
             command: "drill",
-            mode: "mock",
+            mode: "live",
             window: sessionWindow,
             profile: "live",
             reason: "Scheduled drill from console",
           }}
-          confirmationMessage="Confirm executing drill sequence? / 确认执行演练流程？"
-          dryRunPreview="Mock mode uses simulated runbook outputs without touching live feeds. / 模拟模式不会影响生产。"
+          confirmationMessage="Confirm executing drill sequence against the live stack? / 确认在生产栈执行完整演练？"
         />
         <ActionPanel
           titleEn="Health Check"
           titleZh="健康检查"
-          descriptionEn="Run enforcement health check with remediation preview to validate coverage."
-          descriptionZh="执行 enforce 模式健康检查并预览补救操作。"
+          descriptionEn="Run enforcement health check with remediation to validate live coverage."
+          descriptionZh="执行 enforce 模式健康检查并在生产环境验证覆盖率。"
           actionLabelEn="Run Health Check"
           actionLabelZh="执行健康检查"
           payload={{
             command: "health_check",
-            mode: "mock",
+            mode: "live",
             window: sessionWindow,
             profile: "live",
             enforce: true,

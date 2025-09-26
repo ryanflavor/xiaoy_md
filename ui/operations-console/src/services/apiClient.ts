@@ -13,20 +13,17 @@ type OpsEnv = {
 };
 
 function resolveEnv(): OpsEnv {
-  try {
-    const meta = import.meta as { env?: OpsEnv };
-    if (meta?.env) {
-      return meta.env;
-    }
-  } catch (error) {
-    // `import.meta` is unavailable in some Node-driven contexts (e.g., Playwright workers)
-  }
-
   if (typeof globalThis !== "undefined") {
     const globalEnv = (globalThis as { __OPS_ENV__?: OpsEnv }).__OPS_ENV__;
     if (globalEnv) {
       return globalEnv;
     }
+  }
+
+  try {
+    return (import.meta as { env?: OpsEnv }).env ?? {};
+  } catch (error) {
+    // `import.meta` is unavailable in some Node-driven contexts (e.g., Playwright workers)
   }
 
   if (typeof process !== "undefined" && process.env) {
@@ -50,8 +47,15 @@ export class ApiError extends Error {
   }
 }
 
-const baseUrl = env.VITE_OPS_API_BASE_URL ?? "/api";
+const rawBaseUrl = env.VITE_OPS_API_BASE_URL ?? "/api";
+const trimmedBase = rawBaseUrl.replace(/\/$/, "");
+const baseUrl = trimmedBase.endsWith("/api") ? trimmedBase : `${trimmedBase}/api`;
 const apiToken = env.VITE_OPS_API_TOKEN ?? "";
+if (typeof window !== "undefined") {
+  Object.assign(window as typeof window & { __OPS_API_DEBUG?: unknown }, {
+    __OPS_API_DEBUG: { baseUrl, apiToken, env },
+  });
+}
 
 async function request<T>(path: string, method: HttpMethod, body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {

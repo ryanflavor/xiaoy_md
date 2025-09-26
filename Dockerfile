@@ -21,27 +21,34 @@ COPY src/ ./src/
 # Sync dependencies with CTP extra to include vn.py bindings
 # Use copy mode so resulting virtualenv doesn't depend on uv cache symlinks
 ENV UV_LINK_MODE=copy
-RUN uv sync --frozen --no-dev --extra ctp
+ENV UV_CACHE_DIR=/app/.uv-cache
+RUN uv sync --frozen --no-dev --extra ctp && \
+    chmod -R a+rx "${UV_CACHE_DIR}"
 
 # Remove GUI-heavy optional dependencies from the portable virtualenv
-RUN rm -rf \
-        /app/.venv/lib/python3.13/site-packages/PySide6 \
-        /app/.venv/lib/python3.13/site-packages/PySide6-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/shiboken6 \
-        /app/.venv/lib/python3.13/site-packages/shiboken6-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/plotly \
-        /app/.venv/lib/python3.13/site-packages/plotly-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/pyqtgraph \
-        /app/.venv/lib/python3.13/site-packages/pyqtgraph-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/qdarkstyle \
-        /app/.venv/lib/python3.13/site-packages/qdarkstyle-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/talib \
-        /app/.venv/lib/python3.13/site-packages/TA_Lib-*.dist-info \
-        /app/.venv/lib/python3.13/site-packages/Cython \
-        /app/.venv/lib/python3.13/site-packages/Cython-*.dist-info || true
+# RUN rm -rf \
+#         /app/.venv/lib/python3.13/site-packages/PySide6 \
+#         /app/.venv/lib/python3.13/site-packages/PySide6-*.dist-info \
+#         /app/.venv/lib/python3.13/site-packages/shiboken6 \
+#         /app/.venv/lib/python3.13/site-packages/shiboken6-*.dist-info \
+#         /app/.venv/lib/python3.13/site-packages/plotly \
+#         /app/.venv/lib/python3.13/site-packages/plotly-*.dist-info \
+#         /app/.venv/lib/python3.13/site-packages/pyqtgraph \
+#         /app/.venv/lib/python3.13/site-packages/pyqtgraph-*.dist-info \
+#         /app/.venv/lib/python3.13/site-packages/qdarkstyle \
+#         /app/.venv/lib/python3.13/site-packages/qdarkstyle-*.dist-info \
+#         /app/.venv/lib/python3.13/site-packages/Cython \
+#         /app/.venv/lib/python3.13/site-packages/Cython-*.dist-info || true
 
-# Strip native extension binaries to shrink runtime footprint
-RUN find /app/.venv -type f \( -name '*.so' -o -name '*.a' \) -exec strip --strip-unneeded {} + || true
+# Strip native extension binaries and drop caches/tests to shrink runtime footprint
+# RUN find /app/.venv -type f \( -name '*.so' -o -name '*.a' \) -exec strip --strip-unneeded {} + || true && \
+#     find /app/.venv -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+#     find /app/.venv -type f -name '*.py[co]' -delete && \
+#     find /app/.venv/lib -type d -name 'tests' -prune -exec rm -rf {} +
+
+# Enforce an upper bound on the virtualenv size so the final image stays below 300MB
+# ARG VENV_SIZE_LIMIT_MB=300
+# RUN test "$(du -sm /app/.venv | cut -f1)" -le "$VENV_SIZE_LIMIT_MB"
 
 # Runtime image
 FROM python:3.13-slim AS runtime
@@ -71,8 +78,9 @@ RUN groupadd -g 1000 appuser && \
 
 WORKDIR /app
 
-# Copy pre-synced virtual environment from builder stage
+# Copy pre-synced virtual environment and cached native artifacts from builder stage
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=builder --chown=appuser:appuser /app/.uv-cache /app/.uv-cache
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy sources for runtime execution
@@ -84,6 +92,10 @@ COPY --chown=appuser:appuser scripts/ ./scripts/
 ENV PYTHONPATH="/app"
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV UV_CACHE_DIR="/app/.uv-cache"
+
+# Ensure cached native extensions remain readable by non-root runtime user
+RUN if [ -d "/app/.uv-cache" ]; then chmod -R a+rx /app/.uv-cache; fi
 
 # Switch to non-root user
 USER appuser

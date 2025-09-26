@@ -110,14 +110,26 @@ class FakePrometheusClient:
             ),
         }
 
+    def _resolve(self, metric: str) -> PrometheusSample | None:
+        key = metric
+        if metric.startswith("max(") and metric.endswith(")"):
+            key = metric[4:-1]
+        elif metric.startswith("max_over_time(") and metric.endswith(")"):
+            inner = metric[len("max_over_time(") : -1]
+            if inner.endswith("]") and "[" in inner:
+                key = inner.split("[", 1)[0]
+            else:
+                key = inner
+        return self.samples.get(key)
+
     async def query_latest(self, metric: str) -> PrometheusSample | None:
-        return self.samples.get(metric)
+        return self._resolve(metric)
 
     async def query_range(
         self, metric: str, *, minutes: int, step_seconds: int = 60
     ) -> list[PrometheusSample]:
         _ = (minutes, step_seconds)
-        sample = self.samples.get(metric)
+        sample = self._resolve(metric)
         return [sample] if sample else []
 
 

@@ -37,7 +37,9 @@ class PrometheusClient:
         url = f"{self._base_url}/api/v1/query"
         params = {"query": metric}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, trust_env=False
+            ) as client:
                 response = await client.get(url, params=params)
             response.raise_for_status()
         except (httpx.HTTPStatusError, httpx.RequestError):
@@ -46,13 +48,18 @@ class PrometheusClient:
         if payload.get("status") != "success":
             return None
         results = payload.get("data", {}).get("result") or []
-        if not results:
+        best: tuple[datetime, float] | None = None
+        for entry in results:
+            raw_value = entry.get("value")
+            parsed = _parse_value(raw_value)
+            if parsed is None:
+                continue
+            timestamp, value = parsed
+            if best is None or abs(value) > abs(best[1]):
+                best = (timestamp, value)
+        if best is None:
             return None
-        raw_value = results[0].get("value")
-        parsed = _parse_value(raw_value)
-        if parsed is None:
-            return None
-        timestamp, value = parsed
+        timestamp, value = best
         return PrometheusSample(metric=metric, value=value, timestamp=timestamp)
 
     async def query_range(
@@ -75,7 +82,9 @@ class PrometheusClient:
             "step": f"{max(1, step_seconds)}s",
         }
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, trust_env=False
+            ) as client:
                 response = await client.get(url, params=params)
             response.raise_for_status()
         except (httpx.HTTPStatusError, httpx.RequestError):
@@ -86,17 +95,20 @@ class PrometheusClient:
         results = payload.get("data", {}).get("result") or []
         if not results:
             return []
-        series = results[0].get("values") or []
-        samples: list[PrometheusSample] = []
-        for raw_value in series:
-            parsed = _parse_value(raw_value)
-            if parsed is None:
-                continue
-            timestamp, value = parsed
-            samples.append(
-                PrometheusSample(metric=metric, value=value, timestamp=timestamp)
-            )
-        return samples
+        best_by_ts: dict[datetime, float] = {}
+        for entry in results:
+            for raw_value in entry.get("values") or []:
+                parsed = _parse_value(raw_value)
+                if parsed is None:
+                    continue
+                timestamp, value = parsed
+                existing = best_by_ts.get(timestamp)
+                if existing is None or abs(value) > abs(existing):
+                    best_by_ts[timestamp] = value
+        return [
+            PrometheusSample(metric=metric, value=value, timestamp=ts)
+            for ts, value in sorted(best_by_ts.items())
+        ]
 
 
 def _parse_value(raw_value: Any) -> tuple[datetime, float] | None:

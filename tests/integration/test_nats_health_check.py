@@ -108,64 +108,95 @@ def nats_container():
 
 
 @pytest.fixture
-async def app_with_nats(nats_container, docker_test_image):
-    """Start application connected to NATS."""
-    container_name = "test-app-nats"
+async def app_with_nats(nats_container):
+    """Get application container for testing."""
+    import os
 
-    # Stop and remove any existing container
-    subprocess.run(
-        ["docker", "rm", "-f", container_name],
-        capture_output=True,
-        check=False,
-    )
+    # In CI, the application is already running via docker-compose
+    if os.environ.get("CI") == "true":
+        # Use the existing market-data-service container
+        container_name = "market-data-service"
 
-    # Start application container
-    result = subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            "--network",
-            "host",  # Use host network to access NATS on localhost:4222
-            "-e",
-            f"NATS_URL=nats://localhost:{nats_container['client_port']}",
-            "-e",
-            "LOG_LEVEL=DEBUG",
-            docker_test_image,
-        ],
-        capture_output=True,
-        check=True,
-    )
+        # Check if the container is running
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={container_name}"],
+            capture_output=True,
+            check=True,
+        )
 
-    container_id = result.stdout.decode().strip()
+        if not result.stdout.decode().strip():
+            # If not found, check docker-compose services
+            result = subprocess.run(
+                ["docker", "compose", "ps", "-q", "market-data-service"],
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.decode().strip():
+                container_name = "market-data-service"
+            else:
+                pytest.skip("market-data-service container not running in CI")
 
-    # Wait for application to connect to NATS
-    await asyncio.sleep(3)
+        yield container_name
+        # No cleanup needed for CI containers
+    else:
+        # Local testing: start our own container
+        container_name = "test-app-nats"
+        docker_test_image = "market-data-service:latest"
 
-    # Check if container is still running
-    result = subprocess.run(
-        ["docker", "ps", "-q", "-f", f"name={container_name}"],
-        capture_output=True,
-        check=True,
-    )
-
-    if not result.stdout.decode().strip():
-        # Container stopped, get logs for debugging
-        logs = subprocess.run(
-            ["docker", "logs", container_name],
+        # Stop and remove any existing container
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
             capture_output=True,
             check=False,
         )
-        pytest.fail(f"Application container stopped. Logs: {logs.stdout.decode()}")
 
-    yield container_name
+        # Start application container
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--network",
+                "host",  # Use host network to access NATS on localhost:4222
+                "-e",
+                f"NATS_URL=nats://localhost:{nats_container['client_port']}",
+                "-e",
+                "LOG_LEVEL=DEBUG",
+                docker_test_image,
+            ],
+            capture_output=True,
+            check=True,
+        )
 
-    # Cleanup
-    subprocess.run(
-        ["docker", "rm", "-f", container_name], capture_output=True, check=False
-    )
+        container_id = result.stdout.decode().strip()
+
+        # Wait for application to connect to NATS
+        await asyncio.sleep(3)
+
+        # Check if container is still running
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={container_name}"],
+            capture_output=True,
+            check=True,
+        )
+
+        if not result.stdout.decode().strip():
+            # Container stopped, get logs for debugging
+            logs = subprocess.run(
+                ["docker", "logs", container_name],
+                capture_output=True,
+                check=False,
+            )
+            pytest.fail(f"Application container stopped. Logs: {logs.stdout.decode()}")
+
+        yield container_name
+
+        # Cleanup
+        subprocess.run(
+            ["docker", "rm", "-f", container_name], capture_output=True, check=False
+        )
 
 
 @pytest.mark.integration
@@ -173,8 +204,17 @@ async def app_with_nats(nats_container, docker_test_image):
 @pytest.mark.timeout(300)
 async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
-    # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
+    if os.environ.get("CI") == "true":
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
+    # Connect to NATS
+    nc = await nats.connect(nats_url)
 
     try:
         # Send health check request
@@ -214,8 +254,17 @@ async def test_nats_health_check_response(app_with_nats, nats_container):
 @pytest.mark.timeout(300)
 async def test_nats_publisher_connection_resilience(app_with_nats, nats_container):
     """Test that publisher handles connection disruptions gracefully."""
-    # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
+    if os.environ.get("CI") == "true":
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
+    # Connect to NATS
+    nc = await nats.connect(nats_url)
 
     try:
         # First health check should succeed
@@ -250,8 +299,17 @@ async def test_nats_publisher_connection_resilience(app_with_nats, nats_containe
 @pytest.mark.timeout(300)
 async def test_multiple_health_check_requests(app_with_nats, nats_container):
     """Test that application handles multiple concurrent health check requests."""
-    # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
+    if os.environ.get("CI") == "true":
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
+    # Connect to NATS
+    nc = await nats.connect(nats_url)
 
     try:
         # Send multiple concurrent health check requests
@@ -281,8 +339,17 @@ async def test_multiple_health_check_requests(app_with_nats, nats_container):
 @pytest.mark.timeout(300)
 async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_container):
     """Test that health check includes circuit breaker state."""
-    # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
+    if os.environ.get("CI") == "true":
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
+    # Connect to NATS
+    nc = await nats.connect(nats_url)
 
     try:
         # Request health check
@@ -305,8 +372,16 @@ async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_contain
 @pytest.mark.timeout(300)
 async def test_application_graceful_shutdown(app_with_nats, nats_container):
     """Test that application shuts down gracefully when receiving SIGTERM."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # First verify it's running and healthy (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # Verify initial health

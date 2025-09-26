@@ -1,0 +1,41 @@
+schema: 1
+story: '3.7'
+story_title: 'Ops Console & Compose Runtime Integration'
+gate: PASS
+status_reason: 'Ops API runbook orchestration and console wiring validated via unit + Playwright coverage; no blocking gaps discovered.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-09-25T14:12:00+00:00'
+
+top_issues: []
+waiver:
+  active: false
+
+evidence:
+  tests_reviewed: 3
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Bearer-token auth enforced with structured warnings; secrets remain in env vars/scripts.'
+  performance:
+    status: PASS
+    notes: 'Async execution path keeps API responsive; Prometheus queries remain lightweight.'
+  reliability:
+    status: PASS
+    notes: 'Status persistence, watchdog failover, and mocked drill flow cover orchestration success cases.'
+  maintainability:
+    status: PASS
+    notes: 'Service layering separates shell orchestration, FastAPI, and React data hooks for future work.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Introduce a live Compose smoke run that hits the deployed ops-api against Prometheus to catch configuration drift early.'
+      refs:
+        - 'scripts/operations/start_live_env.sh:1'
+quality_score: 100
+expires: '2025-10-09T14:12:00+00:00'

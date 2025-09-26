@@ -214,6 +214,7 @@ class CTPGatewayAdapter(MarketDataPort):
         )
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._dropped_ticks = 0
+        self._sessions_started = 0
         self.symbol_contract_map: dict[str, Any] = (
             {}
         )  # Will be populated by vnpy gateway
@@ -261,6 +262,27 @@ class CTPGatewayAdapter(MarketDataPort):
             finally:
                 self.executor = None
                 self._owns_executor = False
+
+    async def reconnect_with_settings(
+        self, settings: AppSettings | None = None
+    ) -> None:
+        """Reconnect gateway, optionally swapping credential settings."""
+        await self.disconnect()
+        if settings is not None:
+            self.settings = settings
+        await self.connect()
+
+    async def resubscribe_all(self) -> None:
+        """Replay all known subscriptions against the live connector."""
+        for sub in list(self._subs_by_id.values()):
+            try:
+                await self._subscribe_live_hook(sub.symbol, sub.exchange)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "live_resubscribe_failed",
+                    exc_info=True,
+                    extra={"symbol": sub.symbol, "exchange": sub.exchange},
+                )
 
     async def subscribe(self, symbol: str) -> MarketDataSubscription:
         """Subscribe to a symbol; idempotent for the same symbol key.
@@ -369,6 +391,7 @@ class CTPGatewayAdapter(MarketDataPort):
         attempts = 0
         while not self._shutdown.is_set():
             setting = self._build_vnpy_setting()
+            self._sessions_started += 1
             exc = self._run_session_thread(setting)
             if self._shutdown.is_set():
                 return

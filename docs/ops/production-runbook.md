@@ -176,11 +176,18 @@ incident:
 
 ## 8. Operations Console Usage 控制台操作指南
 
-> Story 3.6 引入的前端控制台可在不直接 SSH 登录的情况下执行运维 Runbook 操作，并实时展示 Prometheus 指标。
+> Story 3.6/3.7 引入的前端控制台可在不直接 SSH 登录的情况下执行运维 Runbook 操作，并实时展示 Prometheus 指标。
 
-- **入口**：`ui/operations-console` 构建的 Web 前端，通过 Nginx 或 Vite Preview 暴露于 `https://ops-console.local/`。首次访问需提供 `OPS_API_TOKEN`（Bearer 头）。
+- **入口与认证**：
+  - `ops-api` 以 Docker Compose 服务暴露在 `http://localhost:9180`（对外可经 Nginx/Traefik 转发）。Compose 默认映射为 `OPS_API_PORT` 环境变量，可按需调整。
+  - 前端读取 `.env` 中的 `VITE_OPS_API_BASE_URL` / `VITE_OPS_API_TOKEN`，并在 `npm run build` / `npm run dev` 时注入（系统会自动在该 base URL 后附加 `/api` 前缀）。开发环境可复制 `ui/operations-console/.env.example`。
+  - 后端通过 `OPS_API_CORS_ORIGINS` 配置允许的 Web 控制台来源，默认值为 `*` 以保证局域网主机无需额外配置即可访问；若生产环境需要收紧来源，可改写为逗号分隔列表。 同时确保 `OPS_API_CORS_METHODS` 至少包含 `OPTIONS` / `GET`（示例：`GET,POST,OPTIONS`）。
+  - Bearer Token 需与后端 `OPS_API_TOKENS` 保持一致；多个令牌可逗号分隔，便于为不同班次生成短期凭证。
 - **Overview 总览**：
   - Coverage / Throughput / Failover Latency / Backlog 等核心指标与色彩状态同步 Prometheus。
+  - Coverage 卡片额外展示 `Subscribed: active/expected` 与 `Ignored` 数量，便于确认被排除的期权组合。
+  - Throughput 采用 1 分钟峰值窗口（每 60s 更新），如 Prometheus 暂无样本则在卡片下方提示 “Awaiting metrics / 等待采样”。
+  - 若连续 60 秒无行情样本，服务会自动重连并切换至备账户（若已配置，可通过 `MD_FAILOVER_THRESHOLD_SECONDS` 调整阈值）；指标恢复后卡片状态应回到绿色/蓝色。
   - 右侧 Runbook 状态展示最近一次操作与健康检查结果，支持一键触发 `failover`、`failback`，执行前有双语确认弹窗，执行后展示 JSON 响应与 Asia/Shanghai 时间戳。
 - 详细角色、导航与状态图请参阅 `docs/ops/operations-console-spec.md`。
 - **Drill Control 演练控制**：
@@ -192,7 +199,10 @@ incident:
 - **Audit Timeline 审计时间线**：
   - 按时间倒序列出所有控制台执行的 Runbook 操作，含 `command`、`window`、`profile`、`exit_code`、`finished_at` 与 `reason` 字段。
   - 使用 `Export CSV`（后续 roadmap）可导出同一数据集，当前可通过 API 响应中的 raw_output 下载。
-- **降级策略**：若控制台无法访问， fall back 到脚本流程；所有 console 操作仍写入 `logs/runbooks/start_live_env.log` 与 Pushgateway 指标，确保审计一致性。
+- **错误与降级策略**：
+  - 当 API 返回 401/403/5xx 或无法连接时，页面顶部会出现双语告警横幅，提供排查建议（校验 Token、检查 `ops-api` 服务、确认 Prometheus 在线等）。
+  - 如果 Metrics API 暂时不可用，卡片会显示 `--` 与黄色/红色状态，同时保留最新的成功样本时间；按需手动刷新或切换到 Runbook 日志进行比对。
+  - 若控制台或 `ops-api` 完全不可用，立即回退至脚本流程；所有 console 操作仍写入 `logs/runbooks/start_live_env.log` 与 Pushgateway 指标，确保审计一致性。
 
 ---
 

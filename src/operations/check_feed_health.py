@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Mapping
 import csv
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -37,6 +38,9 @@ DEFAULT_CRITICAL_LAG = 300.0
 DEFAULT_COVERAGE_THRESHOLD = 0.995
 DEFAULT_LOG_PREFIX = "subscription_check"
 DEFAULT_JOB_NAME = "subscription_health"
+DEFAULT_SUMMARY_ROOT = Path("logs/operations")
+
+logger = logging.getLogger(__name__)
 DEFAULT_ESCALATION_MARKER = "subscription_health_escalation"
 
 
@@ -82,6 +86,14 @@ class MissingNATSUrlError(RuntimeError):
         super().__init__(f"nats_url_required context={context}")
 
 
+def _split_symbol_exchange(raw_symbol: str) -> tuple[str, str | None]:
+    cleaned = raw_symbol.strip()
+    if "." in cleaned:
+        base, exchange = cleaned.split(".", 1)
+        return base, exchange
+    return cleaned, None
+
+
 @dataclass(slots=True)
 class HealthEvaluationConfig:
     """Configuration for evaluating feed health."""
@@ -121,24 +133,49 @@ class SubscriptionRecord:
         return f"{self.symbol}.{exchange}"
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> SubscriptionRecord:
-        symbol = str(payload.get("symbol") or payload.get("base_symbol") or "").strip()
-        subscription_id = str(payload.get("subscription_id") or "").strip()
-        if not symbol or not subscription_id:
+    def from_payload(cls, payload: Any) -> SubscriptionRecord:
+        if isinstance(payload, str):
+            raw_symbol = payload.strip()
+            if not raw_symbol:
+                raise SubscriptionPayloadError({"symbol": payload})
+            base_symbol, exchange = _split_symbol_exchange(raw_symbol)
+            now = datetime.now(CHINA_TZ)
+            return cls(
+                symbol=base_symbol,
+                subscription_id=raw_symbol,
+                created_at=now,
+                last_tick_at=now,
+                active=True,
+                exchange=exchange,
+            )
+
+        symbol_raw = payload.get("symbol") or payload.get("base_symbol") or ""
+        symbol = str(symbol_raw).strip()
+        if not symbol:
             raise SubscriptionPayloadError(payload)
-        exchange = payload.get("exchange")
+        base_symbol, exchange = _split_symbol_exchange(symbol)
+
+        subscription_id_raw = (
+            payload.get("subscription_id")
+            or payload.get("id")
+            or payload.get("subscription")
+            or symbol
+        )
+        subscription_id = str(subscription_id_raw).strip() or base_symbol
+
         created_raw = payload.get("created_at")
         created_at = _parse_ts(created_raw) if created_raw else datetime.now(CHINA_TZ)
         last_raw = payload.get("last_tick_at")
         last_tick = _parse_ts(last_raw) if last_raw else None
         active = bool(payload.get("active", True))
+        exchange_value = str(exchange).strip() if exchange else None
         return cls(
-            symbol=symbol,
+            symbol=base_symbol,
             subscription_id=subscription_id,
             created_at=created_at,
             last_tick_at=last_tick,
             active=active,
-            exchange=str(exchange).strip() if exchange else None,
+            exchange=exchange_value,
         )
 
 
@@ -176,13 +213,14 @@ class HealthReport:
     expected_total: int
     active_total: int
     matched_total: int
-    missing_contracts: list[str]
-    unexpected_contracts: list[str]
-    stalled_contracts: list[StalledContract]
-    warnings: list[str]
-    errors: list[str]
     exit_code: int
     mode: str
+    missing_contracts: list[str] = field(default_factory=list)
+    unexpected_contracts: list[str] = field(default_factory=list)
+    stalled_contracts: list[StalledContract] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    ignored_symbols: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     remediation: RemediationResult | None = None
 
@@ -194,6 +232,8 @@ class HealthReport:
             "expected_total": self.expected_total,
             "active_total": self.active_total,
             "matched_total": self.matched_total,
+            "ignored_total": len(self.ignored_symbols),
+            "ignored_symbols": self.ignored_symbols,
             "missing_contracts": self.missing_contracts,
             "unexpected_contracts": self.unexpected_contracts,
             "stalled_contracts": [
@@ -282,15 +322,20 @@ async def run_health_check(
         mode=args.mode,
     )
 
+    ignored_symbols = _load_ignored_symbols(Path(args.subscription_summary_root))
+
     report = evaluate_health(
         expected_symbols,
         active_records,
         config=evaluation_config,
+        ignored_symbols=ignored_symbols,
     )
     report.metadata.update(
         {
             "expected_source": expected_meta,
             "active_source": active_meta,
+            "ignored_count": len(ignored_symbols),
+            "ignored_source": str(Path(args.subscription_summary_root)),
         }
     )
 
@@ -315,6 +360,7 @@ async def run_health_check(
                 expected_symbols,
                 active_records,
                 config=evaluation_config,
+                ignored_symbols=ignored_symbols,
             )
             updated_report.metadata.update(
                 {
@@ -483,8 +529,14 @@ def _parse_subscriptions_payload(payload: Any) -> list[SubscriptionRecord]:
     records: list[SubscriptionRecord] = []
     for item in data:
         try:
-            records.append(SubscriptionRecord.from_payload(dict(item)))
-        except SubscriptionPayloadError:
+            if isinstance(item, str | SubscriptionRecord):
+                record = SubscriptionRecord.from_payload(item)
+            elif isinstance(item, Mapping):
+                record = SubscriptionRecord.from_payload(dict(item))
+            else:
+                record = SubscriptionRecord.from_payload(dict(item))
+            records.append(record)
+        except (SubscriptionPayloadError, TypeError, ValueError):
             continue
     return records
 
@@ -546,15 +598,18 @@ def evaluate_health(
     active_records: Sequence[SubscriptionRecord],
     *,
     config: HealthEvaluationConfig,
+    ignored_symbols: set[str] | None = None,
 ) -> HealthReport:
     now = datetime.now(CHINA_TZ)
+    ignored_set = {symbol.strip() for symbol in (ignored_symbols or set()) if symbol}
     active_set = {record.vt_symbol for record in active_records if record.active}
-    covered = expected_symbols & active_set
-    expected_total = len(expected_symbols)
+    filtered_expected = expected_symbols - ignored_set
+    covered = filtered_expected & active_set
+    expected_total = len(filtered_expected)
     coverage_ratio = 1.0 if expected_total == 0 else len(covered) / expected_total
 
-    missing = sorted(expected_symbols - active_set)
-    unexpected = sorted(active_set - expected_symbols)
+    missing = sorted(filtered_expected - active_set)
+    unexpected = sorted(active_set - filtered_expected)
 
     stalled: list[StalledContract] = []
     critical_count = 0
@@ -596,6 +651,7 @@ def evaluate_health(
         expected_total=expected_total,
         active_total=len(active_set),
         matched_total=len(covered),
+        ignored_symbols=sorted(expected_symbols & ignored_set),
         missing_contracts=missing,
         unexpected_contracts=unexpected,
         stalled_contracts=stalled,
@@ -695,6 +751,44 @@ async def perform_remediation(
 ) -> RemediationResult:
     """Execute remediation attempt via public API (for tests/utilities)."""
     return await _perform_remediation(args, logger, report, attempt=attempt)
+
+
+def _load_ignored_symbols(summary_root: Path) -> set[str]:
+    """Load rejected subscription symbols from the most recent summary file."""
+    try:
+        root = summary_root.parent if summary_root.is_file() else summary_root
+        if not root.exists():
+            return set()
+        summary_files = sorted(
+            root.glob("full-feed-*/summary.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for summary_path in summary_files:
+            try:
+                data = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001  # nosec B112
+                continue
+            rejected_items = data.get("rejected_items") or data.get("rejected") or []
+            ignored = {
+                str(item.get("symbol", "")).strip()
+                for item in rejected_items
+                if isinstance(item, Mapping) and str(item.get("symbol", "")).strip()
+            }
+            if ignored:
+                logger.info(
+                    "ignored_rejections_loaded",
+                    extra={
+                        "summary": str(summary_path),
+                        "count": len(ignored),
+                    },
+                )
+                return ignored
+    except Exception:  # noqa: BLE001
+        logger.warning("ignored_rejections_lookup_failed", exc_info=True)
+        return set()
+    else:
+        return set()
 
 
 def _escalate(
@@ -854,6 +948,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_COVERAGE_THRESHOLD,
         help="Required coverage ratio (default 0.995)",
+    )
+    parser.add_argument(
+        "--subscription-summary-root",
+        type=Path,
+        default=Path(os.getenv("SUBSCRIPTION_SUMMARY_ROOT", str(DEFAULT_SUMMARY_ROOT))),
+        help="Directory containing full-feed subscription summaries (default logs/operations)",
     )
     parser.add_argument(
         "--lag-warning",

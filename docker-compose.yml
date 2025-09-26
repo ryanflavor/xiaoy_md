@@ -131,6 +131,58 @@ services:
           memory: ${SERVICE_LIVE_MEMORY_RESERVE:-1G}
     profiles: ["live"]
 
+  ops-api:
+    container_name: ${OPS_API_CONTAINER_NAME:-ops-api}
+    image: ${SERVICE_IMAGE:-market-data-service:local}
+    entrypoint:
+      - python
+      - scripts/operations/run_ops_api.py
+    environment:
+      <<: *common-env
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_USER: ${NATS_USER:-}
+      NATS_PASSWORD: ${NATS_PASSWORD:-}
+      OPS_API_TOKENS: ${OPS_API_TOKENS:-local-dev-ops-token}
+      OPS_API_PORT: ${OPS_API_PORT:-9180}
+      OPS_API_CORS_ORIGINS: ${OPS_API_CORS_ORIGINS:-*}
+      OPS_API_CORS_METHODS: ${OPS_API_CORS_METHODS:-GET,POST,OPTIONS}
+      OPS_PROMETHEUS_URL: ${OPS_PROMETHEUS_URL:-http://prometheus:9090}
+      PUSHGATEWAY_URL: ${OPS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      NO_PROXY: ${OPS_NO_PROXY:-localhost,127.0.0.1,nats,pushgateway,prometheus}
+      no_proxy: ${OPS_NO_PROXY:-localhost,127.0.0.1,nats,pushgateway,prometheus}
+      OPS_RUNBOOK_SCRIPT: ${OPS_RUNBOOK_SCRIPT:-/app/scripts/operations/start_live_env.sh}
+      OPS_HEALTH_OUTPUT_DIR: ${OPS_HEALTH_OUTPUT_DIR:-/app/logs/runbooks}
+      OPS_STATUS_FILE: ${OPS_STATUS_FILE:-/app/logs/runbooks/ops_console_status.json}
+    depends_on:
+      - nats
+      - pushgateway
+      - prometheus
+    ports:
+      - "${OPS_API_PORT:-9180}:9180"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - |
+          import http.client as c
+          headers = {'Authorization': 'Bearer ' + '${OPS_API_TOKENS:-local-dev-ops-token}'.split(',')[0]}
+          conn = c.HTTPConnection('127.0.0.1', 9180, timeout=3)
+          conn.request('GET', '/api/ops/status', headers=headers)
+          resp = conn.getresponse()
+          exit(0 if resp.status < 500 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ${SOURCE_MOUNT:-./logs}:/app/logs
+      - ./scripts/operations:/app/scripts/operations:ro
+    networks:
+      - market-data-network
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles: ["live", "ops"]
+
   subscription-worker:
     container_name: ${SUBSCRIPTION_CONTAINER_NAME:-subscription-worker}
     image: ${SERVICE_IMAGE:-market-data-service:local}

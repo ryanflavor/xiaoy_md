@@ -16,6 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from src.application.observability import PrometheusMetricsExporter
+from src.config import AppSettings
 from src.domain.models import MarketDataSubscription, MarketTick
 from src.domain.ports import DataRepositoryPort, MarketDataPort, MessagePublisherPort
 
@@ -70,12 +71,17 @@ class MarketDataService:
     RATE_LIMIT_WINDOW_SECONDS = 60.0
     RATE_LIMIT_MAX_REQUESTS = 50
 
+    DEFAULT_FAILOVER_THRESHOLD_SECONDS = 90.0
+    DEFAULT_FAILOVER_INTERVAL_SECONDS = 30.0
+
     def __init__(
         self,
         *,
         ports: ServiceDependencies | None = None,
         rate_limits: RateLimitConfig | None = None,
         metrics: MetricsConfig | None = None,
+        settings: AppSettings | None = None,
+        failover_threshold_seconds: float | None = None,
     ) -> None:
         """Initialize the market data service with optional dependencies."""
         dependencies = ports or ServiceDependencies()
@@ -86,6 +92,7 @@ class MarketDataService:
         self._subscription_symbol_by_id: dict[str, str] = {}
         self._subscription_last_seen: dict[str, datetime] = {}
         self._metrics_exporter = dependencies.metrics_exporter
+        self._settings = settings
 
         rate_config = rate_limits or RateLimitConfig()
         metrics_config = metrics or MetricsConfig()
@@ -109,10 +116,10 @@ class MarketDataService:
         # Observability counters and reporter state (Story 2.4.4)
         self._published_total: int = 0
         self._failed_publishes_total: int = 0
-        # Keep recent publish timestamps (monotonic) for rolling-window MPS
-        # Size bounded to avoid unbounded growth in extreme loads; 10x window as a guard.
+        # Keep recent publish timestamps (monotonic) for rolling-window MPS.
+        # We prune timestamps manually when computing snapshots, so no maxlen clamp.
+        self._publish_timestamps: deque[float] = deque()
         maxlen = max(100, int((metrics_config.window_seconds or 5.0) * 10))
-        self._publish_timestamps: deque[float] = deque(maxlen=maxlen)
         self._latency_samples: deque[tuple[float, float]] = deque(maxlen=maxlen * 10)
         self._metrics_window_seconds = float(metrics_config.window_seconds or 5.0)
         # Default interval equals window unless explicitly overridden
@@ -126,6 +133,19 @@ class MarketDataService:
         self._last_metrics_dropped_total: int = 0
         self._last_metrics_failed_total: int = 0
         self._error_totals: defaultdict[tuple[str, str], int] = defaultdict(int)
+        self._watchdog_task: asyncio.Task[None] | None = None
+        self._last_tick_seen_at: datetime | None = None
+        self._have_seen_live_tick = False
+        self._failover_lock = asyncio.Lock()
+        self._failover_threshold_seconds = (
+            float(failover_threshold_seconds)
+            if failover_threshold_seconds is not None
+            else self.DEFAULT_FAILOVER_THRESHOLD_SECONDS
+        )
+        self._watchdog_interval_seconds = min(
+            max(self.DEFAULT_FAILOVER_INTERVAL_SECONDS, self._metrics_window_seconds),
+            self._failover_threshold_seconds,
+        )
 
     def _check_rate_limit(self, timestamps: deque[float]) -> bool:
         """Check if an operation is allowed under rate limiting.
@@ -280,8 +300,15 @@ class MarketDataService:
         # Ensure metrics reporter is running even when initialize() wasn't called
         self._start_metrics_reporter()
 
-        async for tick in self.market_data_port.receive_ticks():
-            await self._process_tick(tick)
+        try:
+            async for tick in self.market_data_port.receive_ticks():
+                await self._process_tick(tick)
+        finally:
+            if self._watchdog_task is not None:
+                self._watchdog_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._watchdog_task
+                self._watchdog_task = None
 
     async def _process_tick(self, tick: MarketTick) -> None:
         """Process a single market data tick.
@@ -296,6 +323,8 @@ class MarketDataService:
         self._latency_samples.append((time.monotonic(), latency_ms))
 
         self._mark_subscription_activity(tick)
+        self._last_tick_seen_at = datetime.now(CHINA_TZ)
+        self._have_seen_live_tick = True
 
         # Publish to message broker
         if self.publisher_port:
@@ -470,14 +499,22 @@ class MarketDataService:
                 await asyncio.sleep(self._metrics_report_interval_seconds)
 
         self._metrics_task = asyncio.create_task(_reporter())
+        if (
+            self._settings is not None
+            and self._settings.has_backup_profile()
+            and self._watchdog_task is None
+        ):
+            self._watchdog_task = asyncio.create_task(self._failover_watchdog())
 
     def _emit_metrics_snapshot(self) -> None:
         # Compute windowed MPS using monotonic timestamps
         now = time.monotonic()
         cutoff = now - self._metrics_window_seconds
-        recent = [ts for ts in self._publish_timestamps if ts >= cutoff]
+        while self._publish_timestamps and self._publish_timestamps[0] < cutoff:
+            self._publish_timestamps.popleft()
+        count = len(self._publish_timestamps)
         mps = (
-            (len(recent) / self._metrics_window_seconds)
+            (count / self._metrics_window_seconds)
             if self._metrics_window_seconds > 0
             else 0.0
         )
@@ -545,6 +582,79 @@ class MarketDataService:
             exporter.observe_latency_p99(latency_p99)
             exporter.observe_active_subscriptions(active_subscriptions)
 
+    async def _failover_watchdog(self) -> None:
+        """Monitor tick activity and trigger automatic recovery when stalled."""
+        try:
+            await asyncio.sleep(self._watchdog_interval_seconds)
+            while True:
+                await asyncio.sleep(self._watchdog_interval_seconds)
+                if not self._subscriptions:
+                    continue
+                if not self._have_seen_live_tick:
+                    continue
+                last_seen = self._last_tick_seen_at
+                if last_seen is None:
+                    continue
+                age = (datetime.now(CHINA_TZ) - last_seen).total_seconds()
+                if age < self._failover_threshold_seconds:
+                    continue
+                await self._handle_feed_stall(age)
+        except asyncio.CancelledError:  # pragma: no cover - cooperative shutdown
+            return
+
+    async def _handle_feed_stall(self, age_seconds: float) -> None:
+        """Reconnect the gateway (and optionally switch to backup) after a stall."""
+        adapter = self.market_data_port
+        if adapter is None or not hasattr(adapter, "reconnect_with_settings"):
+            return
+        if self._settings is None:
+            return
+        if self._failover_lock.locked():
+            return
+
+        async with self._failover_lock:
+            logger.warning(
+                "market_data_stall_detected",
+                extra={
+                    "age_seconds": round(age_seconds, 1),
+                    "active_subscriptions": len(self._subscriptions),
+                    "route_selector": self._settings.ctp_route_selector,
+                },
+            )
+            target_settings = self._settings
+            route_changed = False
+            if (
+                self._settings.has_backup_profile()
+                and self._settings.ctp_route_selector != "backup"
+            ):
+                target_settings = self._settings.model_copy(
+                    update={"ctp_route_selector": "backup"}
+                )
+                route_changed = True
+
+            try:
+                await adapter.reconnect_with_settings(target_settings)
+                await adapter.resubscribe_all()  # type: ignore[attr-defined]
+            except Exception as exc:
+                logger.error(
+                    "market_data_failover_failed",
+                    exc_info=True,
+                    extra={"error": str(exc)},
+                )
+                return
+
+            self._settings = target_settings
+            self._last_tick_seen_at = datetime.now(CHINA_TZ)
+            self._have_seen_live_tick = False
+            logger.info(
+                "market_data_failover_completed",
+                extra={
+                    "route_selector": target_settings.ctp_route_selector,
+                    "route_changed": route_changed,
+                    "resubscribed": len(self._subscriptions),
+                },
+            )
+
     async def list_active_subscriptions(self) -> list[dict[str, object]]:
         """Return a snapshot of active subscriptions and their activity."""
         snapshot: list[dict[str, object]] = []
@@ -604,9 +714,11 @@ class MarketDataService:
     def get_metrics_snapshot(self) -> dict[str, float | int | bool]:
         now = time.monotonic()
         cutoff = now - self._metrics_window_seconds
-        recent = [ts for ts in self._publish_timestamps if ts >= cutoff]
+        while self._publish_timestamps and self._publish_timestamps[0] < cutoff:
+            self._publish_timestamps.popleft()
+        count = len(self._publish_timestamps)
         mps = (
-            (len(recent) / self._metrics_window_seconds)
+            (count / self._metrics_window_seconds)
             if self._metrics_window_seconds > 0
             else 0.0
         )
