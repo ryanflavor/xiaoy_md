@@ -204,8 +204,16 @@ async def app_with_nats(nats_container):
 @pytest.mark.timeout(300)
 async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # Send health check request
@@ -245,8 +253,16 @@ async def test_nats_health_check_response(app_with_nats, nats_container):
 @pytest.mark.timeout(300)
 async def test_nats_publisher_connection_resilience(app_with_nats, nats_container):
     """Test that publisher handles connection disruptions gracefully."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # First health check should succeed
@@ -281,8 +297,16 @@ async def test_nats_publisher_connection_resilience(app_with_nats, nats_containe
 @pytest.mark.timeout(300)
 async def test_multiple_health_check_requests(app_with_nats, nats_container):
     """Test that application handles multiple concurrent health check requests."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # Send multiple concurrent health check requests
@@ -312,8 +336,16 @@ async def test_multiple_health_check_requests(app_with_nats, nats_container):
 @pytest.mark.timeout(300)
 async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_container):
     """Test that health check includes circuit breaker state."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # Connect to NATS (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # Request health check
@@ -336,8 +368,16 @@ async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_contain
 @pytest.mark.timeout(300)
 async def test_application_graceful_shutdown(app_with_nats, nats_container):
     """Test that application shuts down gracefully when receiving SIGTERM."""
+    import os
+
+    # In CI, connect to the docker-compose NATS on port 4222
+    if os.environ.get("CI") == "true":
+        nats_url = "nats://localhost:4222"
+    else:
+        nats_url = f"nats://localhost:{nats_container['client_port']}"
+
     # First verify it's running and healthy (no auth for basic test)
-    nc = await nats.connect(f"nats://localhost:{nats_container['client_port']}")
+    nc = await nats.connect(nats_url)
 
     try:
         # Verify initial health
