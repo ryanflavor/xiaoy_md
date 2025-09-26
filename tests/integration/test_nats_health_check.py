@@ -206,13 +206,14 @@ async def test_nats_health_check_response(app_with_nats, nats_container):
     """Test that application responds to NATS health check requests."""
     import os
 
-    # In CI, connect to the docker-compose NATS on port 4222
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
     if os.environ.get("CI") == "true":
-        nats_url = "nats://localhost:4222"
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
     else:
         nats_url = f"nats://localhost:{nats_container['client_port']}"
 
-    # Connect to NATS (no auth for basic test)
+    # Connect to NATS
     nc = await nats.connect(nats_url)
 
     try:
@@ -255,13 +256,14 @@ async def test_nats_publisher_connection_resilience(app_with_nats, nats_containe
     """Test that publisher handles connection disruptions gracefully."""
     import os
 
-    # In CI, connect to the docker-compose NATS on port 4222
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
     if os.environ.get("CI") == "true":
-        nats_url = "nats://localhost:4222"
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
     else:
         nats_url = f"nats://localhost:{nats_container['client_port']}"
 
-    # Connect to NATS (no auth for basic test)
+    # Connect to NATS
     nc = await nats.connect(nats_url)
 
     try:
@@ -299,13 +301,14 @@ async def test_multiple_health_check_requests(app_with_nats, nats_container):
     """Test that application handles multiple concurrent health check requests."""
     import os
 
-    # In CI, connect to the docker-compose NATS on port 4222
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
     if os.environ.get("CI") == "true":
-        nats_url = "nats://localhost:4222"
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
     else:
         nats_url = f"nats://localhost:{nats_container['client_port']}"
 
-    # Connect to NATS (no auth for basic test)
+    # Connect to NATS
     nc = await nats.connect(nats_url)
 
     try:
@@ -338,13 +341,14 @@ async def test_circuit_breaker_state_in_health_check(app_with_nats, nats_contain
     """Test that health check includes circuit breaker state."""
     import os
 
-    # In CI, connect to the docker-compose NATS on port 4222
+    # In CI, connect to the docker-compose NATS on port 4222 with auth
     if os.environ.get("CI") == "true":
-        nats_url = "nats://localhost:4222"
+        # CI uses authentication: testuser/testpass
+        nats_url = "nats://testuser:testpass@localhost:4222"  # pragma: allowlist secret
     else:
         nats_url = f"nats://localhost:{nats_container['client_port']}"
 
-    # Connect to NATS (no auth for basic test)
+    # Connect to NATS
     nc = await nats.connect(nats_url)
 
     try:
